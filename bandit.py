@@ -73,7 +73,8 @@ class bandit:
         self.lrArgs = {'dw': 'u0*r1',
                         'r1Impulse': 2,
                         'r1TimeConstant': 1,
-                        'tEpoch': 2}
+                        'tEpoch': 2,
+                        'printDebug': True}
 
         #setup the necessary NX prototypes
         self._create_prototypes()
@@ -139,7 +140,7 @@ class bandit:
                                 noiseMantAtCompartment=2,
                                 noiseExpAtCompartment=7,
                                 functionalState=nx.COMPARTMENT_FUNCTIONAL_STATE.IDLE,
-                                 logicalCoreId=1)
+                                 logicalCoreId=0)
 
         #noisy comparator compartment
         self.c_prototypes['comparator'] = \
@@ -155,7 +156,7 @@ class bandit:
                                 noiseMantAtCompartment=0,
                                 noiseExpAtCompartment=7,
                                 functionalState=nx.COMPARTMENT_FUNCTIONAL_STATE.IDLE,
-                                 logicalCoreId=0)
+                                 logicalCoreId=1)
 
         #compartment which can pass spikes for the reinforcement signal
         self.c_prototypes['buffer'] = \
@@ -170,7 +171,7 @@ class bandit:
                                 randomizeCurrent=1,
                                 noiseExpAtCompartment=7,
                                 functionalState=nx.COMPARTMENT_FUNCTIONAL_STATE.IDLE,
-                                 logicalCoreId=0)
+                                 logicalCoreId=1)
 
 
 
@@ -206,6 +207,12 @@ class bandit:
 
         return rcLocations
 
+    def get_buffer_locations(self):
+        return [self.net.resourceMap.compartment(self.arms[i].buffer.nodeId) for i in range(self.numArms)]
+
+    def get_reward_probes(self):
+        return [arm.rewardProbe for arm in self.arms]
+
     def get_probeid_map(self):
         pids = [[self.arms[j].spikeProbe[0].probes[i].n2Probe.counterId for i in range(self.neuronsPerArm)] for j in range(self.numArms)]
 
@@ -229,15 +236,25 @@ class bandit:
         rcLocations = self.get_reinforcement_channels()
         probeIDMap = self.get_probeid_map()
 
+        #TEST
+        bufferLocations = self.get_buffer_locations()
+
         #send the epoch length
         setupChannel = self.outChannels[0]
         setupChannel.write(1, [self.votingEpoch])
 
-        #send reinforcementChannel locations
+        # #send reinforcementChannel locations
+        # for i in range(self.numArms):
+        #     rcLoc = rcLocations[i]
+        #     for j in range(4):
+        #         setupChannel.write(1, [rcLoc[0][j]])
+
+        #TEST#
+        #send buffer locations instead
         for i in range(self.numArms):
-            rcLoc = rcLocations[i]
+            bufferLoc = bufferLocations[i]
             for j in range(4):
-                setupChannel.write(1, [rcLoc[0][j]])
+                setupChannel.write(1, [bufferLoc[j]])
 
         #send arm probabilities
         for i in range(self.numArms):
