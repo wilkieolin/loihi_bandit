@@ -14,7 +14,8 @@ int readChannelID = -1;
 int writeChannelID = -1;
 int rewardChannelID = -1;
 
-int rcLocation[4];
+int rcLocation[NUMARMS][4];
+int voting_epoch = 128;
 
 int get_reward(int p) {
   int r = rand() % 100;
@@ -67,7 +68,7 @@ void run_cycle(runState *s) {
 
   //TODO - inject reward spike for learning rule
   if (reward) {
-    nx_send_discrete_spike(0, nx_nth_coreid(rcLocation[2]), rcLocation[3]);
+    nx_send_discrete_spike(0, nx_nth_coreid(rcLocation[i_highest][2]), rcLocation[i_highest][3]);
   }
 
   return;
@@ -82,11 +83,18 @@ int check(runState *s) {
 
     //reinforcementChannelID = getChannelID("reinforcementChannel")
 
+    //read out the length of the voting epoch
+    readChannel(readChannelID, &voting_epoch, 1);
+
+    //read the location of the reinforcementChannel so we can send events there
+    for (int i = 0; i < NUMARMS; i++) {
+      readChannel(readChannelID, &rcLocation[i][0], 4);
+    }
+
     //read out the probabilities of reward for each arm
     readChannel(readChannelID, &probabilities[0], NUMARMS);
 
-    //read the location of the reinforcementChannel so we can send events there
-    readChannel(readChannelID, &rcLocation[0], 4);
+    //printf("ID: %i %i %i %i", rcLocation[0], rcLocation[1], rcLocation[2], rcLocation[3]);
 
     //setup an array to hold the map for probeid <-> neuron
     for (int i = 0; i < TOTALNEURONS; i++) {
@@ -97,7 +105,7 @@ int check(runState *s) {
     for (int i = 0; i < NUMARMS; i++) { spike_counts[i] = 0; }
   }
 
-  if (s->time_step % 100 == 0) {
+  if (s->time_step % voting_epoch == 0) {
     return 1;
   } else {
     return 0;
