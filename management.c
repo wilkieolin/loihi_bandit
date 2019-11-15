@@ -13,6 +13,7 @@ int probe_map[TOTALNEURONS];
 int readChannelID = -1;
 int writeChannelID = -1;
 int rewardChannelID = -1;
+int spikeChannelID = -1;
 
 int rcLocation[NUMARMS][4];
 int voting_epoch = 128;
@@ -48,6 +49,7 @@ void run_cycle(runState *s) {
       //clear the registers
       SPIKE_COUNT[(s->time_step-1)&3][probe_id] = 0;
     }
+    writeChannel(spikeChannelID, &spike_counts[i], 1);
   }
 
   // choose the arm with the highest count
@@ -66,10 +68,19 @@ void run_cycle(runState *s) {
   int reward = get_reward(probabilities[i_highest]);
   writeChannel(rewardChannelID, &reward, 1);
 
-  //TODO - inject reward spike for learning rule
-  if (reward) {
-    nx_send_discrete_spike(0, nx_nth_coreid(rcLocation[i_highest][2]), rcLocation[i_highest][3]);
+  //send spikes to channels which will have weights decremented
+  for (int i = 0; i < NUMARMS; i++) {
+    if (i == i_highest && reward) {
+      continue;
+    } else {
+      nx_send_discrete_spike(0, nx_nth_coreid(rcLocation[i][2]), rcLocation[i][3]);
+    }
   }
+
+  // //TODO - inject reward spike for learning rule
+  // if (reward) {
+  //   nx_send_discrete_spike(0, nx_nth_coreid(rcLocation[i_highest][2]), rcLocation[i_highest][3]);
+  // }
 
   return;
 }
@@ -80,6 +91,7 @@ int check(runState *s) {
     readChannelID = getChannelID("setupChannel");
     writeChannelID = getChannelID("dataChannel");
     rewardChannelID = getChannelID("rewardChannel");
+    spikeChannelID = getChannelID("spikeChannel");
 
     //reinforcementChannelID = getChannelID("reinforcementChannel")
 

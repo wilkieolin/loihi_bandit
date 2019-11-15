@@ -49,7 +49,7 @@ class arm:
     def _create_generators(self, s_prototypes):
         #create the reward spike generator (dummy)
         self.spikeGen = self.net.createSpikeGenProcess(1)
-        self.spikeGen.addSpikes([0], [[1]])
+        #self.spikeGen.addSpikes([0], [[1]])
         self.spikeGen.connect(self.buffer, prototype=s_prototypes['passthrough'])
 
     def _create_learning_rule(self, lrArgs):
@@ -79,7 +79,7 @@ class arm:
 
 
 class bandit:
-    def __init__(self, numArms=5, neuronsPerArm=1, votingEpoch=128, epochs=10):
+    def __init__(self, numArms=5, neuronsPerArm=1, votingEpoch=128, epochs=10, **kwargs):
         self.numArms = numArms
         self.neuronsPerArm = neuronsPerArm
         self.totalNeurons = numArms * neuronsPerArm
@@ -87,14 +87,29 @@ class bandit:
         self.epochs = epochs
 
         #set default values for weights and probabilities
-        self.probabilities = 100 * np.ones(numArms, dtype='int')
-        self.weights = 100 * np.ones(numArms, dtype='int')
+        if 'probabilities' in kwargs:
+            probs = kwargs['probabilities']
+            for p in probs:
+                assert p in range(0,100+1), "Probabilitiy must be in range [0,100]."
+            assert len(probs) == self.numArms, "Must have probability for each arm."
+
+            self.probabilities = np.array(probs, dtype='int')
+        else:
+            self.probabilities = 100 * np.ones(numArms, dtype='int')
+
+        if 'weights' in kwargs:
+            weights = kwargs['weights']
+            assert len(weights), "Length of supplied weights must be equal to number of arms."
+
+            self.weights = np.array(weights, dtype='int')
+        else:
+            self.weights = 100 * np.ones(numArms, dtype='int')
 
         #initialize the network
         self.net = nx.NxNet()
         self.arms = []
 
-        self.lrArgs = {'dw': 'u0*r1',
+        self.lrArgs = {'dw': '-1*r1*u0',
                         'r1Impulse': 2,
                         'r1TimeConstant': 1,
                         'tEpoch': 2,
@@ -147,10 +162,16 @@ class bandit:
         #create the data channels to return reward & choice at each epoch
         dataChannel = self.board.createChannel(b'dataChannel', "int", (self.epochs+1))
         dataChannel.connect(self.snip, None)
+        self.inChannels.append(dataChannel)
+
         rewardChannel = self.board.createChannel(b'rewardChannel', "int", (self.epochs+1))
         rewardChannel.connect(self.snip, None)
-        self.inChannels.append(dataChannel)
         self.inChannels.append(rewardChannel)
+
+        spikeChannel = self.board.createChannel(b'spikeChannel', "int", (self.epochs*self.numArms))
+        spikeChannel.connect(self.snip, None)
+        self.inChannels.append(spikeChannel)
+
 
     def _create_prototypes(self):
         #setup compartment prototypes
@@ -244,16 +265,28 @@ class bandit:
 
         return pids
 
+    def get_weights(self):
+        wps = [arm.weightProbe for arm in self.arms]
+        n_d = len(wps[0][0][0].data)
+        ws = np.zeros((self.numArms, self.neuronsPerArm, n_d), dtype='int')
+        for i in range(self.numArms):
+            for j in range(self.neuronsPerArm):
+                ws[i,j,:] = wps[i][0][0].data
+
+        return ws
+
     def run(self, epochs):
         assert epochs in range(1, self.epochs + 1), "Must run between 1 and the set number of epochs."
         dataChannel = self.inChannels[0]
         rewardChannel = self.inChannels[1]
+        spikeChannel = self.inChannels[2]
 
         self.board.run(self.votingEpoch * epochs)
         choices = dataChannel.read(epochs)
         rewards = rewardChannel.read(epochs)
+        spikes = np.array(spikeChannel.read(epochs*self.numArms), dtype='int').reshape(epochs, self.numArms)
 
-        return (choices, rewards)
+        return (choices, rewards, spikes)
 
     def stop(self):
         self.board.disconnect()
