@@ -7,47 +7,71 @@ from nxsdk.graph.monitor.probes import *
 from nxsdk.graph.processes.phase_enums import Phase
 
 class arm:
-    def __init__(self, net, neuronsPerArm, weight, c_prototypes, s_prototypes, lrArgs):
-        self.neuronsPerArm = neuronsPerArm
+    def __init__(self, net, **kwargs):
+        self.neuronsPerArm = kwargs['neuronsPerArm']
+        self.coreSliceInd = kwargs['coreSliceInd']
+        self.net = net
+        c_prototypes = kwargs['c_prototypes']
+        s_prototypes = kwargs['s_prototypes']
+        weight = kwargs['weight']
+        lrArgs = kwargs['lrArgs']
 
-        #setup the learning rule
-        self.learningRule = net.createLearningRule(**lrArgs)
-        #create the excitatory connectin prototype
-        self.exSynPrototype = nx.ConnectionPrototype(learningRule=self.learningRule, **s_prototypes['exh_kwargs'])
+        self._create_learning_rule(lrArgs)
+        self._create_prototypes(c_prototypes, s_prototypes)
+        self._create_compartments()
+        self._create_connections(weight, s_prototypes)
+        self._create_generators(s_prototypes)
+        self._create_probes()
 
+    def _create_compartments(self):
         #create the excitatory/inhibitory compartment groups and comparator
-        self.exhGroup = net.createCompartmentGroup(size=self.neuronsPerArm, prototype=c_prototypes['noisy'])
-        self.inhGroup = net.createCompartmentGroup(size=self.neuronsPerArm, prototype=c_prototypes['noisy'])
-        self.comparator = net.createCompartmentGroup(size=self.neuronsPerArm, prototype=c_prototypes['comparator'])
+        self.exhGroup = self.net.createCompartmentGroup(size=self.neuronsPerArm, prototype=self.noisyCompPrototype)
+        self.inhGroup = self.net.createCompartmentGroup(size=self.neuronsPerArm, prototype=self.noisyCompPrototype)
+        self.comparator = self.net.createCompartmentGroup(size=self.neuronsPerArm, prototype=self.comparatorCompPrototype)
         #create the arm's reward buffer
-        self.buffer = net.createCompartment(prototype=c_prototypes['buffer'])
+        self.buffer =self.net.createCompartment(prototype=self.bufferCompPrototype)
 
+    def _create_connections(self, weight, s_prototypes):
         #connect the plastic excitatory synapses
         self.exhSynapses = self.exhGroup.connect(self.comparator,
                                                 prototype=self.exSynPrototype,
                                                 weight=np.repeat(weight, self.neuronsPerArm) * np.identity(self.neuronsPerArm),
-                                                connectionMask=np.identity(neuronsPerArm))
+                                                connectionMask=np.identity(self.neuronsPerArm))
 
         #connect the non-learning inhibitory synapses
         self.inhSynapses = self.inhGroup.connect(self.comparator,
                                                 prototype=s_prototypes['inh'],
                                                 weight=np.repeat(50, self.neuronsPerArm) * np.identity(self.neuronsPerArm),
-                                                connectionMask=np.identity(neuronsPerArm))
-
+                                                connectionMask=np.identity(self.neuronsPerArm))
         #connect the buffer to the learning rule
         self.bufferConnection = self.buffer.connect(self.learningRule.reinforcementChannel, prototype=self.exSynPrototype)
 
+    def _create_generators(self, s_prototypes):
         #create the reward spike generator (dummy)
-        self.spikeGen = net.createSpikeGenProcess(1)
+        self.spikeGen = self.net.createSpikeGenProcess(1)
         self.spikeGen.addSpikes([0], [[1]])
         self.spikeGen.connect(self.buffer, prototype=s_prototypes['passthrough'])
 
+    def _create_learning_rule(self, lrArgs):
+        #setup the learning rule
+        self.learningRule = self.net.createLearningRule(**lrArgs)
+
+    def _create_probes(self):
         #set up the probes
         self.rewardProbe = self.bufferConnection.probe(nx.ProbeParameter.REWARD_TRACE)
         #don't the spike probe it or this will interfere with the SNIP counting spikes
         customSpikeProbeCond = SpikeProbeCondition(tStart=10000000)
         self.spikeProbe = self.comparator.probe(nx.ProbeParameter.SPIKE, customSpikeProbeCond)
         self.weightProbe = self.exhSynapses.probe(nx.ProbeParameter.SYNAPSE_WEIGHT)
+
+
+    def _create_prototypes(self, c_prototypes, s_prototypes):
+        #create the compartment prototypes
+        self.noisyCompPrototype = nx.CompartmentPrototype(**c_prototypes['noisy_kwargs'], logicalCoreId = self.coreSliceInd * 2)
+        self.comparatorCompPrototype = nx.CompartmentPrototype(**c_prototypes['comparator_kwargs'], logicalCoreId = self.coreSliceInd * 2 + 1)
+        self.bufferCompPrototype = nx.CompartmentPrototype(**c_prototypes['buffer_kwargs'], logicalCoreId = self.coreSliceInd * 2 + 1)
+        #create the excitatory connection prototype
+        self.exSynPrototype = nx.ConnectionPrototype(learningRule=self.learningRule, **s_prototypes['exh_kwargs'])
 
     #def change_weight(weight):
         #TODO#
@@ -80,7 +104,7 @@ class bandit:
         self._create_prototypes()
         #use these to create the arms whose spiking output will choose a potential reward
         for i in range(numArms):
-            self._create_arm(self.weights[i])
+            self._create_arm(self.weights[i], i)
         #compile the generated network to a board
         self._compile()
         #create the SNIP which will select an arm, generate rewards, and communicate to
@@ -98,8 +122,14 @@ class bandit:
         self.compiler = nx.N2Compiler()
         self.board = self.compiler.compile(self.net)
 
-    def _create_arm(self, weight):
-        self.arms.append(arm(self.net, self.neuronsPerArm, weight, self.c_prototypes, self.s_prototypes, self.lrArgs))
+    def _create_arm(self, weight, coreSliceInd):
+        self.arms.append(arm(self.net,
+            coreSliceInd = coreSliceInd,
+            neuronsPerArm = self.neuronsPerArm,
+            weight = weight,
+            c_prototypes = self.c_prototypes,
+            s_prototypes = self.s_prototypes,
+            lrArgs = self.lrArgs))
 
     def _create_channels(self):
         assert hasattr(self, 'board'), "Must compile net to board before creating channels."
@@ -127,53 +157,49 @@ class bandit:
         self.c_prototypes = {}
 
         #randomly spiking compartment
-        self.c_prototypes['noisy'] = \
-        nx.CompartmentPrototype(biasMant=0,
-                                biasExp=0,
-                                vThMant=4,
-                                compartmentVoltageDecay=0,
-                                compartmentCurrentDecay=0,
+        self.c_prototypes['noisy_kwargs'] = \
+            {'biasMant': 0,
+            'biasExp': 0,
+            'vThMant':4,
+            'compartmentVoltageDecay': 0,
+            'compartmentCurrentDecay': 0,
 
-                                enableNoise=1,
-                                randomizeVoltage=1,
-                                randomizeCurrent=0,
-                                noiseMantAtCompartment=2,
-                                noiseExpAtCompartment=7,
-                                functionalState=nx.COMPARTMENT_FUNCTIONAL_STATE.IDLE,
-                                 logicalCoreId=0)
+            'enableNoise': 1,
+            'randomizeVoltage': 1,
+            'randomizeCurrent': 0,
+            'noiseMantAtCompartment': 2,
+            'noiseExpAtCompartment': 7,
+            'functionalState': nx.COMPARTMENT_FUNCTIONAL_STATE.IDLE}
 
         #noisy comparator compartment
-        self.c_prototypes['comparator'] = \
-            nx.CompartmentPrototype(biasMant=0,
-                                biasExp=0,
-                                vThMant=100,
-                                compartmentVoltageDecay=0,
-                                compartmentCurrentDecay=2048,
+        self.c_prototypes['comparator_kwargs'] = \
+            {'biasMant': 0,
+            'biasExp': 0,
+            'vThMant': 100,
+            'compartmentVoltageDecay': 0,
+            'compartmentCurrentDecay': 2048,
 
-                                enableNoise=1,
-                                randomizeVoltage=0,
-                                randomizeCurrent=1,
-                                noiseMantAtCompartment=0,
-                                noiseExpAtCompartment=7,
-                                functionalState=nx.COMPARTMENT_FUNCTIONAL_STATE.IDLE,
-                                 logicalCoreId=1)
+            'enableNoise': 1,
+            'randomizeVoltage': 0,
+            'randomizeCurrent': 1,
+            'noiseMantAtCompartment': 0,
+            'noiseExpAtCompartment': 7,
+            'functionalState': nx.COMPARTMENT_FUNCTIONAL_STATE.IDLE}
 
         #compartment which can pass spikes for the reinforcement signal
-        self.c_prototypes['buffer'] = \
-            nx.CompartmentPrototype(biasMant=0,
-                                biasExp=0,
-                                vThMant=254,
-                                compartmentVoltageDecay=0,
-                                compartmentCurrentDecay=4095,
+        self.c_prototypes['buffer_kwargs'] = \
+            {'biasMant': 0,
+            'biasExp': 0,
+            'vThMant':254,
+            'compartmentVoltageDecay': 0,
+            'compartmentCurrentDecay': 4095,
 
-                                enableNoise=0,
-                                randomizeVoltage=0,
-                                randomizeCurrent=1,
-                                noiseExpAtCompartment=7,
-                                functionalState=nx.COMPARTMENT_FUNCTIONAL_STATE.IDLE,
-                                 logicalCoreId=1)
-
-
+            'enableNoise': 0,
+            'randomizeVoltage': 0,
+            'randomizeCurrent': 1,
+            'noiseMantAtCompartment': 0,
+            'noiseExpAtCompartment': 7,
+            'functionalState': nx.COMPARTMENT_FUNCTIONAL_STATE.IDLE}
 
         self.s_prototypes = {}
 
