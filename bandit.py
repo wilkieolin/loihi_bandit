@@ -29,7 +29,8 @@ class arm:
         self.inhGroup = self.net.createCompartmentGroup(size=self.neuronsPerArm, prototype=self.noisyCompPrototype)
         self.comparator = self.net.createCompartmentGroup(size=self.neuronsPerArm, prototype=self.comparatorCompPrototype)
         #create the arm's reward buffer
-        self.buffer =self.net.createCompartment(prototype=self.bufferCompPrototype)
+        self.exBuffer = self.net.createCompartment(prototype=self.bufferCompPrototype)
+        #self.inhBuffer = self.net.createCompartment(prototype=self.bufferCompPrototype)
 
     def _create_connections(self, weight, s_prototypes):
         #connect the plastic excitatory synapses
@@ -44,13 +45,14 @@ class arm:
                                                 weight=np.repeat(50, self.neuronsPerArm) * np.identity(self.neuronsPerArm),
                                                 connectionMask=np.identity(self.neuronsPerArm))
         #connect the buffer to the learning rule
-        self.bufferConnection = self.buffer.connect(self.learningRule.reinforcementChannel, prototype=self.exSynPrototype)
+        self.exBufferConnection = self.exBuffer.connect(self.learningRule.reinforcementChannel, prototype=self.exSynPrototype)
+        #self.inhBufferConnection = self.inhBuffer.connect(self.learningRule.reinforcementChannel, prototype=self.inhSynPrototype)
 
     def _create_generators(self, s_prototypes):
         #create the reward spike generator (dummy)
         self.spikeGen = self.net.createSpikeGenProcess(1)
         #self.spikeGen.addSpikes([0], [[1]])
-        self.spikeGen.connect(self.buffer, prototype=s_prototypes['passthrough'])
+        self.spikeGen.connect(self.exBuffer, prototype=s_prototypes['passthrough'])
 
     def _create_learning_rule(self, lrArgs):
         #setup the learning rule
@@ -58,7 +60,7 @@ class arm:
 
     def _create_probes(self):
         #set up the probes
-        self.rewardProbe = self.bufferConnection.probe(nx.ProbeParameter.REWARD_TRACE)
+        self.rewardProbe = self.exBufferConnection.probe(nx.ProbeParameter.REWARD_TRACE)
         #don't the spike probe it or this will interfere with the SNIP counting spikes
         customSpikeProbeCond = SpikeProbeCondition(tStart=10000000)
         self.spikeProbe = self.comparator.probe(nx.ProbeParameter.SPIKE, customSpikeProbeCond)
@@ -72,6 +74,7 @@ class arm:
         self.bufferCompPrototype = nx.CompartmentPrototype(**c_prototypes['buffer_kwargs'], logicalCoreId = self.coreSliceInd * 2 + 1)
         #create the excitatory connection prototype
         self.exSynPrototype = nx.ConnectionPrototype(learningRule=self.learningRule, **s_prototypes['exh_kwargs'])
+        #self.inhSynPrototype = nx.ConnectionPrototype(learningRule=self.learningRule, **s_prototypes['inh_kwargs'])
 
     #def change_weight(weight):
         #TODO#
@@ -105,11 +108,16 @@ class bandit:
         else:
             self.weights = 100 * np.ones(numArms, dtype='int')
 
+        if 'seed' in kwargs:
+            self.seed = kwargs['seed']
+        else:
+            self.seed = 329801
+
         #initialize the network
         self.net = nx.NxNet()
         self.arms = []
 
-        self.lrArgs = {'dw': '-1*r1*u0',
+        self.lrArgs = {'dw': '1*r1*u0',
                         'r1Impulse': 2,
                         'r1TimeConstant': 1,
                         'tEpoch': 2,
@@ -152,9 +160,9 @@ class bandit:
         self.outChannels = []
         self.inChannels = []
 
-        # need to send the epoch length, probability and reinforcement channel for each arm,
+        # need to send the epoch length, seed (2), probability (numArms), and ex/inh buffer id for each arm,
         # and the probeID <-> neuron map
-        n_outData = 1 + self.numArms * 5 + self.totalNeurons
+        n_outData = 2 + self.numArms * (1 + 4) + self.totalNeurons
         setupChannel = self.board.createChannel(b'setupChannel', "int", n_outData)
         setupChannel.connect(None, self.snip)
         self.outChannels.append(setupChannel)
@@ -230,6 +238,12 @@ class bandit:
                                     'numTagBits': 8,
                                     'signMode': nx.SYNAPSE_SIGN_MODE.MIXED}
 
+        self.s_prototypes['inh_kwargs'] = {'weight': -2,
+                                    'delay': 0,
+                                    'enableLearning': 1,
+                                    'numTagBits': 8,
+                                    'signMode': nx.SYNAPSE_SIGN_MODE.MIXED}
+
         self.s_prototypes['inh'] = nx.ConnectionPrototype(weight=2,
                                     delay=0,
                                     signMode=nx.SYNAPSE_SIGN_MODE.MIXED)
@@ -255,7 +269,11 @@ class bandit:
         return rcLocations
 
     def get_buffer_locations(self):
-        return [self.net.resourceMap.compartment(self.arms[i].buffer.nodeId) for i in range(self.numArms)]
+        locs = []
+        for i in range(self.numArms):
+            locs.append(self.net.resourceMap.compartment(self.arms[i].exBuffer.nodeId))
+            #locs.append(self.net.resourceMap.compartment(self.arms[i].inhBuffer.nodeId))
+        return locs
 
     def get_reward_probes(self):
         return [arm.rewardProbe for arm in self.arms]
@@ -294,13 +312,14 @@ class bandit:
     def _send_config(self):
         rcLocations = self.get_reinforcement_channels()
         probeIDMap = self.get_probeid_map()
-
-        #TEST
         bufferLocations = self.get_buffer_locations()
 
         #send the epoch length
         setupChannel = self.outChannels[0]
         setupChannel.write(1, [self.votingEpoch])
+
+        #send the random seed
+        setupChannel.write(1, [self.seed])
 
         # #send reinforcementChannel locations
         # for i in range(self.numArms):
@@ -308,8 +327,7 @@ class bandit:
         #     for j in range(4):
         #         setupChannel.write(1, [rcLoc[0][j]])
 
-        #TEST#
-        #send buffer locations instead
+        #send buffer locations
         for i in range(self.numArms):
             bufferLoc = bufferLocations[i]
             for j in range(4):
