@@ -50,8 +50,6 @@ int check(runState *s) {
     //read out the probabilities of reward for each arm
     readChannel(readChannelID, &probabilities[0], NUMARMS);
 
-    //printf("ID: %i %i %i %i", rcLocation[0], rcLocation[1], rcLocation[2], rcLocation[3]);
-
     //setup an array to hold the map for probeid <-> neuron
     for (int i = 0; i < TOTALNEURONS; i++) {
       readChannel(readChannelID, &probe_map[i], 1);
@@ -161,20 +159,6 @@ void run_cycle(runState *s) {
   }
   // else {
   //   nx_send_discrete_spike(0, nx_nth_coreid(inhBufferLocation[i_highest][2]), inhBufferLocation[i_highest][3]);
-  // }
-
-  //send spikes to channels which will have weights decremented
-  // for (int i = 0; i < NUMARMS; i++) {
-  //   if (i == i_highest && reward) {
-  //     continue;
-  //   } else {
-  //     nx_send_discrete_spike(0, nx_nth_coreid(rcLocation[i][2]), rcLocation[i][3]);
-  //   }
-  // }
-
-  // //TODO - inject reward spike for learning rule
-  // if (reward) {
-  //   nx_send_discrete_spike(0, nx_nth_coreid(rcLocation[i_highest][2]), rcLocation[i_highest][3]);
   // }
 
   return;

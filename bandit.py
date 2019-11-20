@@ -144,6 +144,7 @@ class bandit:
     def _compile(self):
         self.compiler = nx.N2Compiler()
         self.board = self.compiler.compile(self.net)
+        self.board.sync = True
 
     def _create_arm(self, weight, coreSliceInd):
         self.arms.append(arm(self.net,
@@ -275,6 +276,12 @@ class bandit:
             #locs.append(self.net.resourceMap.compartment(self.arms[i].inhBuffer.nodeId))
         return locs
 
+    def get_mean_optimal_action(self):
+        assert hasattr(self, 'choices'), "Must run network to get MOA."
+        bestarm = np.argmax(self.probabilities)
+        #TODO finish
+
+
     def get_reward_probes(self):
         return [arm.rewardProbe for arm in self.arms]
 
@@ -300,11 +307,15 @@ class bandit:
         spikeChannel = self.inChannels[2]
 
         self.board.run(self.votingEpoch * epochs)
-        choices = dataChannel.read(epochs)
-        rewards = rewardChannel.read(epochs)
-        spikes = np.array(spikeChannel.read(epochs*self.numArms), dtype='int').reshape(epochs, self.numArms)
+        self.choices = np.array(dataChannel.read(epochs))
+        self.rewards = np.array(rewardChannel.read(epochs))
+        self.spikes = np.array(spikeChannel.read(epochs*self.numArms), dtype='int').reshape(epochs, self.numArms)
 
-        return (choices, rewards, spikes)
+        return (self.choices, self.rewards, self.spikes)
+
+    def reset(self):
+        self.board.fetch()
+
 
     def stop(self):
         self.board.disconnect()
