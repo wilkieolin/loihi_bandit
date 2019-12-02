@@ -14,9 +14,10 @@ class arm:
         c_prototypes = kwargs['c_prototypes']
         s_prototypes = kwargs['s_prototypes']
         weight = kwargs['weight']
-        lrArgs = kwargs['lrArgs']
+        exhLrArgs = kwargs['exhLrArgs']
+        inhLrArgs = kwargs['inhLrArgs']
 
-        self._create_learning_rule(lrArgs)
+        self._create_learning_rule(exhLrArgs, inhLrArgs)
         self._create_prototypes(c_prototypes, s_prototypes)
         self._create_compartments()
         self._create_connections(weight, s_prototypes)
@@ -45,8 +46,8 @@ class arm:
                                                 weight=np.repeat(50, self.neuronsPerArm) * np.identity(self.neuronsPerArm),
                                                 connectionMask=np.identity(self.neuronsPerArm))
         #connect the buffer to the learning rule
-        self.exBufferConnection = self.exBuffer.connect(self.learningRule.reinforcementChannel, prototype=self.exSynPrototype)
-        #self.inhBufferConnection = self.inhBuffer.connect(self.learningRule.reinforcementChannel, prototype=self.inhSynPrototype)
+        self.exBufferConnection = self.exBuffer.connect(self.exhLearningRule.reinforcementChannel, prototype=self.exSynPrototype)
+        #self.inhBufferConnection = self.inhBuffer.connect(self.exhLearningRule.reinforcementChannel, prototype=self.inhSynPrototype)
 
     def _create_generators(self, s_prototypes):
         #create the reward spike generator (dummy)
@@ -54,9 +55,10 @@ class arm:
         #self.spikeGen.addSpikes([0], [[1]])
         self.spikeGen.connect(self.exBuffer, prototype=s_prototypes['passthrough'])
 
-    def _create_learning_rule(self, lrArgs):
+    def _create_learning_rule(self, exhLrArgs, inhLrArgs):
         #setup the learning rule
-        self.learningRule = self.net.createLearningRule(**lrArgs)
+        self.exhLearningRule = self.net.createLearningRule(**exhLrArgs)
+        #self.inhLearningRule = self.net.createLearningRule(**inhLrArgs)
 
     def _create_probes(self):
         #set up the probes
@@ -73,8 +75,8 @@ class arm:
         self.comparatorCompPrototype = nx.CompartmentPrototype(**c_prototypes['comparator_kwargs'], logicalCoreId = self.coreSliceInd * 2 + 1)
         self.bufferCompPrototype = nx.CompartmentPrototype(**c_prototypes['buffer_kwargs'], logicalCoreId = self.coreSliceInd * 2 + 1)
         #create the excitatory connection prototype
-        self.exSynPrototype = nx.ConnectionPrototype(learningRule=self.learningRule, **s_prototypes['exh_kwargs'])
-        #self.inhSynPrototype = nx.ConnectionPrototype(learningRule=self.learningRule, **s_prototypes['inh_kwargs'])
+        self.exSynPrototype = nx.ConnectionPrototype(learningRule=self.exhLearningRule, **s_prototypes['exh_kwargs'])
+        #self.inhSynPrototype = nx.ConnectionPrototype(learningRule=self.inhLearningRule, **s_prototypes['inh_kwargs'])
 
     #def change_weight(weight):
         #TODO#
@@ -113,13 +115,28 @@ class bandit:
         else:
             self.seed = 329801
 
+        if 'probeWeights' in kwargs:
+            self.probeWeights = kwargs['probeWeights']
+        else:
+            self.probeWeights = True
+
+
         #initialize the network
         self.net = nx.NxNet()
         self.arms = []
 
-        self.lrArgs = {'dw': '1*r1*u0',
+        if 'lrArgs' in kwargs:
+            self.exhLrArgs = kwargs['lrArgs']
+        else:
+            self.exhLrArgs = {'dw': '-1*2^-5*sgn(w-50)*u0 + 1*r1*u0',
                         'r1Impulse': 2,
-                        'r1TimeConstant': 1,
+                        'r1TimeConstant': 0,
+                        'tEpoch': 2,
+                        'printDebug': True}
+
+        self.inhLrArgs = {'dw': '-1*r1*u0',
+                        'r1Impulse': 2,
+                        'r1TimeConstant': 4,
                         'tEpoch': 2,
                         'printDebug': True}
 
@@ -127,7 +144,7 @@ class bandit:
         self._create_prototypes()
         #use these to create the arms whose spiking output will choose a potential reward
         for i in range(numArms):
-            self._create_arm(self.weights[i], i)
+            self._create_arm(self.weights[i], 0)
         #compile the generated network to a board
         self._compile()
         #create the SNIP which will select an arm, generate rewards, and communicate to
@@ -148,12 +165,14 @@ class bandit:
 
     def _create_arm(self, weight, coreSliceInd):
         self.arms.append(arm(self.net,
+            probeWeights = self.probeWeights,
             coreSliceInd = coreSliceInd,
             neuronsPerArm = self.neuronsPerArm,
             weight = weight,
             c_prototypes = self.c_prototypes,
             s_prototypes = self.s_prototypes,
-            lrArgs = self.lrArgs))
+            exhLrArgs = self.exhLrArgs,
+            inhLrArgs = self.exhLrArgs))
 
     def _create_channels(self):
         assert hasattr(self, 'board'), "Must compile net to board before creating channels."

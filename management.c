@@ -156,9 +156,10 @@ void run_cycle(runState *s) {
 
   if (reward) {
     nx_send_discrete_spike(0, nx_nth_coreid(exhBufferLocation[i_highest][2]), exhBufferLocation[i_highest][3]);
+    //nx_send_discrete_spike(1, nx_nth_coreid(exhBufferLocation[i_highest][2]), exhBufferLocation[i_highest][3]);
   }
   // else {
-  //   nx_send_discrete_spike(0, nx_nth_coreid(inhBufferLocation[i_highest][2]), inhBufferLocation[i_highest][3]);
+  //   nx_send_discrete_spike(0, nx_nth_coreid(exhBufferLocation[i_highest][2]), exhBufferLocation[i_highest][3]);
   // }
 
   return;
