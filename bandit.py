@@ -329,6 +329,7 @@ class bandit:
         return pids
 
     def get_weights(self):
+        assert self.recordWeights, "Weights were not recorded."
         wps = [arm.weightProbe for arm in self.arms]
         n_d = len(wps[0][0][0].data)
         ws = np.zeros((self.numArms, self.neuronsPerArm, n_d), dtype='int')
