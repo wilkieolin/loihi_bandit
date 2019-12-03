@@ -11,6 +11,7 @@ class arm:
         self.neuronsPerArm = kwargs['neuronsPerArm']
         self.coreSliceInd = kwargs['coreSliceInd']
         self.net = net
+        self.recordWeights = kwargs['recordWeights']
         c_prototypes = kwargs['c_prototypes']
         s_prototypes = kwargs['s_prototypes']
         weight = kwargs['weight']
@@ -21,6 +22,7 @@ class arm:
         self._create_prototypes(c_prototypes, s_prototypes)
         self._create_compartments()
         self._create_connections(weight, s_prototypes)
+        self._create_LFSR_dummies(self.coreSliceInd)
         self._create_generators(s_prototypes)
         self._create_probes()
 
@@ -60,26 +62,37 @@ class arm:
         self.exhLearningRule = self.net.createLearningRule(**exhLrArgs)
         #self.inhLearningRule = self.net.createLearningRule(**inhLrArgs)
 
+    def _create_LFSR_dummies(self, number):
+        self.net.createCompartmentGroup(size=number, prototype=self.dummyPrototype0)
+        self.net.createCompartmentGroup(size=number, prototype=self.dummyPrototype1)
+
     def _create_probes(self):
         #set up the probes
         self.rewardProbe = self.exBufferConnection.probe(nx.ProbeParameter.REWARD_TRACE)
         #don't the spike probe it or this will interfere with the SNIP counting spikes
         customSpikeProbeCond = SpikeProbeCondition(tStart=10000000)
         self.spikeProbe = self.comparator.probe(nx.ProbeParameter.SPIKE, customSpikeProbeCond)
-        self.weightProbe = self.exhSynapses.probe(nx.ProbeParameter.SYNAPSE_WEIGHT)
+        if self.recordWeights:
+            self.weightProbe = self.exhSynapses.probe(nx.ProbeParameter.SYNAPSE_WEIGHT)
 
 
     def _create_prototypes(self, c_prototypes, s_prototypes):
         #create the compartment prototypes
         self.noisyCompPrototype = nx.CompartmentPrototype(**c_prototypes['noisy_kwargs'], logicalCoreId = self.coreSliceInd * 2)
+        self.dummyPrototype0 = nx.CompartmentPrototype(**c_prototypes['noisy_kwargs'], logicalCoreId = self.coreSliceInd * 2)
+
         self.comparatorCompPrototype = nx.CompartmentPrototype(**c_prototypes['comparator_kwargs'], logicalCoreId = self.coreSliceInd * 2 + 1)
         self.bufferCompPrototype = nx.CompartmentPrototype(**c_prototypes['buffer_kwargs'], logicalCoreId = self.coreSliceInd * 2 + 1)
+        self.dummyPrototype1 = nx.CompartmentPrototype(**c_prototypes['comparator_kwargs'], logicalCoreId = self.coreSliceInd * 2 + 1)
         #create the excitatory connection prototype
         self.exSynPrototype = nx.ConnectionPrototype(learningRule=self.exhLearningRule, **s_prototypes['exh_kwargs'])
         #self.inhSynPrototype = nx.ConnectionPrototype(learningRule=self.inhLearningRule, **s_prototypes['inh_kwargs'])
 
+
     #def change_weight(weight):
         #TODO#
+
+
 
 
 
@@ -120,6 +133,11 @@ class bandit:
         else:
             self.probeWeights = True
 
+        if 'recordWeights' in kwargs:
+            self.recordWeights = kwargs['recordWeights']
+        else:
+            self.recordWeights = False
+
 
         #initialize the network
         self.net = nx.NxNet()
@@ -144,7 +162,7 @@ class bandit:
         self._create_prototypes()
         #use these to create the arms whose spiking output will choose a potential reward
         for i in range(numArms):
-            self._create_arm(self.weights[i], 0)
+            self._create_arm(self.weights[i], i)
         #compile the generated network to a board
         self._compile()
         #create the SNIP which will select an arm, generate rewards, and communicate to
@@ -172,7 +190,8 @@ class bandit:
             c_prototypes = self.c_prototypes,
             s_prototypes = self.s_prototypes,
             exhLrArgs = self.exhLrArgs,
-            inhLrArgs = self.exhLrArgs))
+            inhLrArgs = self.exhLrArgs,
+            recordWeights = self.recordWeights))
 
     def _create_channels(self):
         assert hasattr(self, 'board'), "Must compile net to board before creating channels."
