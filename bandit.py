@@ -121,7 +121,7 @@ class bandit:
 
             self.weights = np.array(weights, dtype='int')
         else:
-            self.weights = 100 * np.ones(numArms, dtype='int')
+            self.weights = 50 * np.ones(numArms, dtype='int')
 
         if 'seed' in kwargs:
             self.seed = kwargs['seed']
@@ -138,10 +138,10 @@ class bandit:
         else:
             self.recordWeights = False
 
-
         #initialize the network
         self.net = nx.NxNet()
         self.arms = []
+        self.started = False
 
         if 'lrArgs' in kwargs:
             self.exhLrArgs = kwargs['lrArgs']
@@ -170,11 +170,6 @@ class bandit:
         self._create_SNIPs()
         #create channels to/from the SNIP to read out the network's choices/rewards on host
         self._create_channels()
-        #start the network on Loihi
-        self._start()
-        #send the configuration information required by the SNIP
-        self._send_config()
-
 
     def _compile(self):
         self.compiler = nx.N2Compiler()
@@ -330,6 +325,7 @@ class bandit:
 
     def get_weights(self):
         assert self.recordWeights, "Weights were not recorded."
+
         wps = [arm.weightProbe for arm in self.arms]
         n_d = len(wps[0][0][0].data)
         ws = np.zeros((self.numArms, self.neuronsPerArm, n_d), dtype='int')
@@ -339,7 +335,16 @@ class bandit:
 
         return ws
 
+    def init(self):
+        self._start()
+        self._send_config()
+
     def run(self, epochs):
+        #only reserve hardware once we actually need to run the network
+        if not self.started:
+            self.init()
+            self.started = True
+
         assert epochs in range(1, self.epochs + 1), "Must run between 1 and the set number of epochs."
         dataChannel = self.inChannels[0]
         rewardChannel = self.inChannels[1]
