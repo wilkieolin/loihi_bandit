@@ -15,7 +15,7 @@ int writeChannelID = -1;
 int rewardChannelID = -1;
 int spikeChannelID = -1;
 
-int exhBufferLocation[NUMARMS][4];
+int eventCompartment[NUMARMS][4];
 //int inhBufferLocation[NUMARMS][4];
 int voting_epoch = 128;
 int cseed = 12340;
@@ -39,7 +39,7 @@ int check(runState *s) {
 
     //read the location of the excitatory buffer so we can send events there
     for (int i = 0; i < NUMARMS; i++) {
-      readChannel(readChannelID, &exhBufferLocation[i][0], 4);
+      readChannel(readChannelID, &eventCompartment[i][0], 4);
     }
 
     // //read the location of the inhibitory buffer so we can send events there
@@ -147,7 +147,9 @@ void run_cycle(runState *s) {
     writeChannel(spikeChannelID, &spike_counts[i], 1);
   }
 
-  int i_highest = get_highest(&spike_counts[0]);
+  //int i_highest = get_highest(&spike_counts[0]);
+  //DEBUG
+  int i_highest = ((s->time_step / voting_epoch) % NUMARMS);
   //return the arm which we chose to the host
   writeChannel(writeChannelID, &i_highest, 1);
 
@@ -155,11 +157,11 @@ void run_cycle(runState *s) {
   writeChannel(rewardChannelID, &reward, 1);
 
   if (reward) {
-    nx_send_discrete_spike(0, nx_nth_coreid(exhBufferLocation[i_highest][2]), exhBufferLocation[i_highest][3]);
-    //nx_send_discrete_spike(1, nx_nth_coreid(exhBufferLocation[i_highest][2]), exhBufferLocation[i_highest][3]);
+    nx_send_discrete_spike(0, nx_nth_coreid(eventCompartment[i_highest][2]), eventCompartment[i_highest][3]);
+    //nx_send_discrete_spike(1, nx_nth_coreid(eventCompartment[i_highest][2]), eventCompartment[i_highest][3]);
   }
   // else {
-  //   nx_send_discrete_spike(0, nx_nth_coreid(exhBufferLocation[i_highest][2]), exhBufferLocation[i_highest][3]);
+  //   nx_send_discrete_spike(0, nx_nth_coreid(eventCompartment[i_highest][2]), eventCompartment[i_highest][3]);
   // }
 
   return;
