@@ -16,7 +16,6 @@ int rewardChannelID = -1;
 int spikeChannelID = -1;
 
 int eventCompartment[NUMARMS][4];
-//int inhBufferLocation[NUMARMS][4];
 int voting_epoch = 128;
 int cseed = 12340;
 
@@ -37,23 +36,22 @@ int check(runState *s) {
     readChannel(readChannelID, &cseed, 1);
     srand(cseed);
 
-    //read the location of the excitatory buffer so we can send events there
+    //read the location of the stub group so we can send events to the input neurons
     for (int i = 0; i < NUMARMS; i++) {
       readChannel(readChannelID, &eventCompartment[i][0], 4);
+      //printf("%d %d %d %d\n", eventCompartment[i][0], eventCompartment[i][1], eventCompartment[i][2], eventCompartment[i][3]);
     }
-
-    // //read the location of the inhibitory buffer so we can send events there
-    // for (int i = 0; i < NUMARMS; i++) {
-    //   readChannel(readChannelID, &inhBufferLocation[i][0], 4);
-    // }
 
     //read out the probabilities of reward for each arm
     readChannel(readChannelID, &probabilities[0], NUMARMS);
 
     //setup an array to hold the map for probeid <-> neuron
+    printf("Probe IDs: ");
     for (int i = 0; i < TOTALNEURONS; i++) {
       readChannel(readChannelID, &probe_map[i], 1);
+      printf("%d ", probe_map[i]);
     }
+    printf("\n");
 
     //setup an array to hold the spike counters & init to zero
     for (int i = 0; i < NUMARMS; i++) { spike_counts[i] = 0; }
@@ -133,23 +131,20 @@ void run_cycle(runState *s) {
   int neuron_count = 0;
   int probe_id = 0;
   //get the spikes counted on each arm since the last epoch & write out by arm
-  for (int i = 0; i < NUMARMS; i++) {
+  for (int i = 0; i < TOTALNEURONS; i++) {
     spike_counts[i] = 0;
-    for (int j = 0; j < NEURONSPERARM; j++) {
-      //copy each group's spike count from the Lakemont registers
-      probe_id = probe_map[i * NEURONSPERARM + j];
-      neuron_count = SPIKE_COUNT[(s->time_step-1)&3][probe_id];
-      //writeChannel(writeChannelID, &neuron_count, 1);
-      spike_counts[i] += neuron_count;
-      //clear the registers
-      SPIKE_COUNT[(s->time_step-1)&3][probe_id] = 0;
-    }
+    //copy each group's spike count from the Lakemont registers
+    probe_id = probe_map[i];
+    neuron_count = SPIKE_COUNT[(s->time_step-1)&3][probe_id];
+    //printf("%d ", neuron_count);
+    spike_counts[i] += neuron_count;
+    //clear the registers
+    SPIKE_COUNT[(s->time_step-1)&3][probe_id] = 0;
     writeChannel(spikeChannelID, &spike_counts[i], 1);
   }
+  //printf("\n");
 
-  //int i_highest = get_highest(&spike_counts[0]);
-  //DEBUG
-  int i_highest = ((s->time_step / voting_epoch) % NUMARMS);
+  int i_highest = get_highest(&spike_counts[0]);
   //return the arm which we chose to the host
   writeChannel(writeChannelID, &i_highest, 1);
 
@@ -157,12 +152,9 @@ void run_cycle(runState *s) {
   writeChannel(rewardChannelID, &reward, 1);
 
   if (reward) {
-    nx_send_discrete_spike(0, nx_nth_coreid(eventCompartment[i_highest][2]), eventCompartment[i_highest][3]);
+    nx_send_discrete_spike(s->time_step, nx_nth_coreid(eventCompartment[i_highest][2]), eventCompartment[i_highest][3]);
     //nx_send_discrete_spike(1, nx_nth_coreid(eventCompartment[i_highest][2]), eventCompartment[i_highest][3]);
   }
-  // else {
-  //   nx_send_discrete_spike(0, nx_nth_coreid(eventCompartment[i_highest][2]), eventCompartment[i_highest][3]);
-  // }
 
   return;
 }
