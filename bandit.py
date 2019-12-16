@@ -25,15 +25,9 @@ class bandit:
         else:
             self.probabilities = 100 * np.ones(numArms, dtype='int')
 
-        if 'seed' in kwargs:
-            self.seed = kwargs['seed']
-        else:
-            self.seed = 329801
-
-        if 'recordWeights' in kwargs:
-            self.recordWeights = kwargs['recordWeights']
-        else:
-            self.recordWeights = False
+        self.seed = kwargs.get('seed', 329801)
+        self.recordWeights = kwargs.get('recordWeights', False)
+        self.snipProbe = kwargs.get('snipProbe', True)
 
         #initialize the network
         self.net = nx.NxNet()
@@ -170,14 +164,15 @@ class bandit:
         # -- Create Probes --
         self.probes = {}
 
-        customSpikeProbeCond = SpikeProbeCondition(tStart=100000000)
+        if self.snipProbe:
+            customSpikeProbeCond = SpikeProbeCondition(tStart=10000000)
+        else:
+            customSpikeProbeCond = SpikeProbeCondition(tStart=1)
         self.probes['spks'] = self.compartments['soma'].probe(nx.ProbeParameter.SPIKE, customSpikeProbeCond)
         self.probes['nspks'] = self.neurons['invneurons'].soma.probe(nx.ProbeParameter.SPIKE)
 
         self.probes['eand'] = self.compartments['exc_ands'].probe(nx.ProbeParameter.SPIKE)
         self.probes['iand'] = self.compartments['inh_ands'].probe(nx.ProbeParameter.SPIKE)
-
-
 
         #self.vSpkProbe = self.integrator.probe(nx.ProbeParameter.SPIKE)
         #self.rwdProbe = self.inputs.probe(nx.ProbeParameter.SPIKE)

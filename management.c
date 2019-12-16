@@ -19,6 +19,7 @@ int rewardCompartment[NUMARMS][4];
 int punishCompartment[NUMARMS][4];
 int voting_epoch = 128;
 int cseed = 12340;
+int cycle = 0;
 
 int check(runState *s) {
   if (s->time_step == 1) {
@@ -139,15 +140,17 @@ void run_cycle(runState *s) {
     //copy each group's spike count from the Lakemont registers
     probe_id = probe_map[i];
     neuron_count = SPIKE_COUNT[(s->time_step-1)&3][probe_id];
-    //printf("%d ", neuron_count);
+    printf("%d ", neuron_count);
     spike_counts[i] += neuron_count;
     //clear the registers
     SPIKE_COUNT[(s->time_step-1)&3][probe_id] = 0;
     writeChannel(spikeChannelID, &spike_counts[i], 1);
   }
-  //printf("\n");
+  printf("\n");
 
-  int i_highest = get_highest(&spike_counts[0]);
+  //DEBUG
+  //int i_highest = get_highest(&spike_counts[0]);
+  int i_highest = cycle % NUMARMS;
   //return the arm which we chose to the host
   writeChannel(writeChannelID, &i_highest, 1);
 
@@ -160,5 +163,6 @@ void run_cycle(runState *s) {
     nx_send_discrete_spike(s->time_step, nx_nth_coreid(punishCompartment[i_highest][2]), punishCompartment[i_highest][3]);
   }
 
+  cycle++;
   return;
 }
