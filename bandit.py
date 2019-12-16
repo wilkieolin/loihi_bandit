@@ -43,8 +43,7 @@ class bandit:
         #setup the necessary NX prototypes
         self._create_prototypes()
         #use these to create the arms whose spiking output will choose a potential reward
-        self._create_compartments()
-        self._create_connections()
+        self._create_trackers()
         self._create_probes()
         #compile the generated network to a board
         self._compile()
@@ -71,9 +70,9 @@ class bandit:
         self.outChannels = []
         self.inChannels = []
 
-        # need to send the epoch length, seed, probability (numArms), and buffer id for each arm,
+        # need to send the epoch length, seed, probability (numArms), and pos/neg terminal for each arm,
         # and the probeID <-> neuron map
-        n_outData = 2 + self.numArms * (1 + 4) + self.totalNeurons
+        n_outData = 2 + self.numArms * (1 + 2*4) + self.totalNeurons
         setupChannel = self.board.createChannel(b'setupChannel', "int", n_outData)
         setupChannel.connect(None, self.snip)
         self.outChannels.append(setupChannel)
@@ -94,109 +93,201 @@ class bandit:
 
     def _create_prototypes(self):
         #setup compartment prototypes
-        self.c_prototypes = {}
+        c_prototypes = {}
+        n_prototypes = {}
+        s_prototypes = {}
 
-        self.noisekwargs = {'randomizeVoltage': 1,
-            'randomizeCurrent': 0,
-            'noiseMantAtCompartment': 0,
-            'noiseExpAtCompartment': 7}
+        #Q Neuron
+        c_prototypes['somaProto'] = nx.CompartmentPrototype(vThMant=self.vth,
+                                        compartmentCurrentDecay=4095,
+                                        compartmentVoltageDecay=0)
 
-        #soma 'output' compartment
-        self.c_prototypes['soma'] = nx.CompartmentPrototype(
-            vThMant = self.vth,
-            compartmentCurrentDecay = 4095,
-            compartmentVoltageDecay = 0,
-            thresholdBehavior = 0,
-            functionalState = 2,
-            enableNoise = 0,
-            **self.noisekwargs)
+        c_prototypes['spkProto'] = nx.CompartmentPrototype(vThMant=self.vth,
+                                           compartmentCurrentDecay=4095,
+                                           compartmentVoltageDecay=0,
+                                           thresholdBehavior=2)
 
-        #voltage compartment, soft reset performed here
-        self.c_prototypes['volt'] = nx.CompartmentPrototype(
-            vThMant = self.vth,
-            compartmentCurrentDecay = 4095,
-            compartmentVoltageDecay = 0,
-            thresholdBehavior = 2,
-            functionalState = 2,
-            enableNoise = 0,
-            **self.noisekwargs)
+        c_prototypes['ememProto'] = nx.CompartmentPrototype(vThMant=self.vth,
+                                           #vMaxExp=15,
+                                           compartmentCurrentDecay=4095,
+                                           compartmentVoltageDecay=0,
+                                           thresholdBehavior=3)
 
-        #memory compartment (current driver for volt)
-        self.c_prototypes['memory'] = nx.CompartmentPrototype(
-            vThMant = self.vth,
-            compartmentCurrentDecay = 4095,
-            compartmentVoltageDecay = 0,
-            thresholdBehavior = 2,
-            functionalState = 2,
-            enableNoise = 0,
-            **self.noisekwargs)
+        c_prototypes['somaProto'].addDendrite([c_prototypes['spkProto']],
+                                              nx.COMPARTMENT_JOIN_OPERATION.OR)
 
-        #compartment to receive reward inputs from the SNIP
-        self.c_prototypes['input'] = nx.CompartmentPrototype(
-            biasMant = 1,
-            biasExp = 6,
-            vThMant = 50,
-            compartmentCurrentDecay = 4095,
-            compartmentVoltageDecay = 0,
-            thresholdBehavior = 0,
-            functionalState = 2,
-            enableNoise = 0,
-            **self.noisekwargs)
+        c_prototypes['spkProto'].addDendrite([c_prototypes['ememProto']],
+                                             nx.COMPARTMENT_JOIN_OPERATION.ADD)
 
-        self.s_prototypes = {}
+        n_prototypes['qProto'] = nx.NeuronPrototype(c_prototypes['somaProto'])
 
-        self.s_prototypes['exc'] = nx.ConnectionPrototype(weight = 2)
+        #S Inverter
+        c_prototypes['invProto'] = nx.CompartmentPrototype(vThMant=self.vth-1,
+                                       compartmentCurrentDecay=4095,
+                                       compartmentVoltageDecay=0,
+                                       thresholdBehavior=0,
+                                       functionalState = 2
+                                       )
 
-        self.s_prototypes['inh'] = nx.ConnectionPrototype(weight = -2)
+        c_prototypes['spkProto'] = nx.CompartmentPrototype(vThMant=self.vth-1,
+                                           biasMant=self.vth,
+                                           biasExp=6,
+                                           thresholdBehavior=0,
+                                           compartmentCurrentDecay=4095,
+                                           compartmentVoltageDecay=0,
+                                           functionalState=2
+                                          )
 
-        self.s_prototypes['vth_neg'] = nx.ConnectionPrototype(weight = -1*self.vth)
+        c_prototypes['receiverProto'] = nx.CompartmentPrototype(vThMant=self.vth-1,
+                                           compartmentCurrentDecay=4095,
+                                           compartmentVoltageDecay=0,
+                                            thresholdBehavior=0)
 
-        self.s_prototypes['reward'] = nx.ConnectionPrototype(weight = 255)
+        c_prototypes['invProto'].addDendrite([c_prototypes['receiverProto']],
+                                             nx.COMPARTMENT_JOIN_OPERATION.BLOCK)
 
-        #create the multi-compartment neuron prototype
-        self.c_prototypes['soma'].addDendrite([self.c_prototypes['volt']], nx.COMPARTMENT_JOIN_OPERATION.OR)
-        self.c_prototypes['volt'].addDendrite([self.c_prototypes['memory']], nx.COMPARTMENT_JOIN_OPERATION.ADD)
+        n_prototypes['invNeuron'] = nx.NeuronPrototype(c_prototypes['invProto'])
 
-        self.n_prototypes = {}
-        self.n_prototypes['tracker'] = nx.NeuronPrototype(self.c_prototypes['soma'])
+        #AND
+        c_prototypes['andProto'] = nx.CompartmentPrototype(vThMant=self.vth,
+                                      compartmentCurrentDecay=4095,
+                                      compartmentVoltageDecay=4095)
 
-    def _create_compartments(self):
-        self.stubs = self.net.createInputStubGroup(size=self.numArms)
-        self.inputs = self.net.createCompartmentGroup(size=self.numArms, prototype=self.c_prototypes['input'])
+        #Connections
+        s_prototypes['econn'] = nx.ConnectionPrototype(weight=2)
+        s_prototypes['iconn'] = nx.ConnectionPrototype(weight=-2)
+        s_prototypes['vthconn'] = nx.ConnectionPrototype(weight=-self.vth)
+        s_prototypes['spkconn'] = nx.ConnectionPrototype(weight=self.vth)
+        s_prototypes['halfconn'] = nx.ConnectionPrototype(weight = int(self.vth/2)+1)
 
-        self.tracker = self.net.createNeuronGroup(size=self.totalNeurons, prototype=self.n_prototypes['tracker'])
-        self.soma = self.tracker.soma
-        self.integrator = self.tracker.dendrites[0]
-        self.memory = self.tracker.dendrites[0].dendrites[0]
 
-        #self.output = self.net.createCompartmentGroup(size=self.numArms)
-
-    def _create_connections(self):
-        self.connections = {}
-        #make the self-reset connections
-        self.connections['vth_reset'] = self.soma.connect(self.integrator,
-            prototype = self.s_prototypes['vth_neg'],
-            connectionMask = np.identity(self.numArms))
-        #make the reward connections
-        cm = np.zeros((self.numArms, self.totalNeurons), dtype='int')
-        for i in range(self.numArms):
-            cm[i, (i*self.neuronsPerArm):((i+1)*self.neuronsPerArm)] = 1
-
-        self.connections['reward'] = self.inputs.connect(self.memory,
-            prototype=self.s_prototypes['exc'],
-            connectionMask=cm)
-
-        #make the buffer connections which can drive rewards & receive signals from SNIP
-        self.connections['stubs'] = self.stubs.connect(self.inputs, prototype=self.s_prototypes['reward'], connectionMask=np.identity(self.numArms))
+        self.c_prototypes = c_prototypes
+        self.n_prototypes = n_prototypes
+        self.s_prototypes = s_prototypes
 
     def _create_probes(self):
+
+        # -- Create Probes --
+        self.probes = {}
+
         customSpikeProbeCond = SpikeProbeCondition(tStart=100000000)
-        self.spikeProbe = self.soma.probe(nx.ProbeParameter.SPIKE, customSpikeProbeCond)
+        self.probes['spks'] = self.compartments['soma'].probe(nx.ProbeParameter.SPIKE, customSpikeProbeCond)
+        self.probes['nspks'] = self.neurons['invneurons'].soma.probe(nx.ProbeParameter.SPIKE)
+
+        self.probes['eand'] = self.compartments['exc_ands'].probe(nx.ProbeParameter.SPIKE)
+        self.probes['iand'] = self.compartments['inh_ands'].probe(nx.ProbeParameter.SPIKE)
+
+
+
         #self.vSpkProbe = self.integrator.probe(nx.ProbeParameter.SPIKE)
         #self.rwdProbe = self.inputs.probe(nx.ProbeParameter.SPIKE)
         if self.recordWeights:
-            self.weightProbe = self.memory.probe(nx.ProbeParameter.COMPARTMENT_VOLTAGE)
-            self.vProbe = self.integrator.probe(nx.ProbeParameter.COMPARTMENT_VOLTAGE)
+            self.probes['weights'] = self.compartments['memory'].probe(nx.ProbeParameter.COMPARTMENT_VOLTAGE)
+            self.probes['vspks'] = self.compartments['soma'].probe(nx.ProbeParameter.COMPARTMENT_VOLTAGE)
+            self.probes['vnspks'] = self.neurons['invneurons'].soma.probe(nx.ProbeParameter.COMPARTMENT_VOLTAGE)
+
+    def _create_trackers(self):
+        # -- Create Compartments & Neurons --
+        self.compartments = {}
+        self.connections = {}
+        self.neurons = {}
+        self.stubs = {}
+
+        c_prototypes = self.c_prototypes
+        n_prototypes = self.n_prototypes
+        s_prototypes = self.s_prototypes
+
+        #create Q & wire neurons
+        qneurons = self.net.createNeuronGroup(size=self.numArms,
+                                         prototype=n_prototypes['qProto'])
+
+        qneurons_softreset = qneurons.soma.connect(qneurons.dendrites[0],
+                                                  prototype=s_prototypes['vthconn'],
+                                                  connectionMask=np.identity(self.numArms))
+
+        memory = qneurons.dendrites[0].dendrites[0]
+
+        self.neurons['qneurons'] = qneurons
+        self.connections['qneurons_softreset'] = qneurons_softreset
+        self.compartments['soma'] = qneurons.soma
+        self.compartments['integrator'] = qneurons.dendrites[0]
+        self.compartments['memory'] = memory
+
+        #create & wire inverters
+        invneurons = self.net.createNeuronGroup(size=self.numArms,
+                                     prototype=n_prototypes['invNeuron'])
+
+        driver = self.net.createCompartmentGroup(size=1,
+                                            prototype=c_prototypes['spkProto'])
+
+        driver_connection = driver.connect(invneurons.soma,
+                                           prototype=s_prototypes['spkconn'],
+                                          connectionMask=np.ones((self.numArms,1)))
+
+        self.neurons['invneurons'] = invneurons
+        self.compartments['driver'] = driver
+        self.connections['driver_connection'] = driver_connection
+
+        #create ANDs
+        exc_ands = self.net.createCompartmentGroup(size=self.numArms,
+                                         prototype=c_prototypes['andProto'])
+
+        inh_ands = self.net.createCompartmentGroup(size=self.numArms,
+                                         prototype=c_prototypes['andProto'])
+
+        self.compartments['exc_ands'] = exc_ands
+        self.compartments['inh_ands'] = inh_ands
+
+        #create input stubs for SNIP to interface with the network
+
+        estubs = self.net.createInputStubGroup(size=self.numArms)
+        istubs = self.net.createInputStubGroup(size=self.numArms)
+
+        self.stubs['estubs'] = estubs
+        self.stubs['istubs'] = istubs
+
+        # -- Create Higher Connections --
+        # Q to inverter
+        qinv_conns = qneurons.soma.connect(invneurons.dendrites[0],
+                                         prototype=s_prototypes['spkconn'],
+                                          connectionMask=np.identity(self.numArms))
+        # &EXC to Q memory
+        exc_conns = exc_ands.connect(memory,
+                                    prototype=s_prototypes['econn'],
+                                    connectionMask=np.identity(self.numArms))
+
+        # &INH to Q memory
+        inh_conns = inh_ands.connect(memory,
+                                    prototype=s_prototypes['iconn'],
+                                    connectionMask=np.identity(self.numArms))
+
+        # !Q to &EXC
+        nspk_exc_conns = invneurons.soma.connect(exc_ands,
+                                                prototype=s_prototypes['halfconn'],
+                                                connectionMask=np.identity(self.numArms))
+
+        # Q to &INH
+        spk_inh_conns = qneurons.soma.connect(inh_ands,
+                                             prototype=s_prototypes['halfconn'],
+                                             connectionMask=np.identity(self.numArms))
+
+        # Exc stub to &EXC
+        estub_exc_conn = estubs.connect(exc_ands,
+                                        prototype=s_prototypes['halfconn'],
+                                        connectionMask=np.identity(self.numArms))
+
+        istub_inh_conn = istubs.connect(inh_ands,
+                                        prototype=s_prototypes['halfconn'],
+                                        connectionMask=np.identity(self.numArms))
+
+        self.connections['qinv_conns'] = qinv_conns
+        self.connections['exc_conns'] = exc_conns
+        self.connections['inh_conns'] = inh_conns
+        self.connections['nspk_exc_conns'] = nspk_exc_conns
+        self.connections['spk_inh_conns'] = spk_inh_conns
+        self.connections['estub_exc_conn'] = estub_exc_conn
+        self.connections['istub_inh_conn'] = istub_inh_conn
+
 
     def _create_SNIPs(self):
         assert hasattr(self, 'board'), "Must compile net to board before creating SNIP."
@@ -210,12 +301,15 @@ class bandit:
     def get_buffer_locations(self):
         locs = []
         for i in range(self.numArms):
-            axonId = self.connections['stubs'][i].inputAxon.nodeId
-            locs.append(self.net.resourceMap.inputAxon(axonId)[0])
-        return locs
+            eAxonId = self.connections['estub_exc_conn'][i].inputAxon.nodeId
+            eAxon = self.net.resourceMap.inputAxon(eAxonId)[0]
 
-    def get_buffer_spikes(self):
-        return np.array(self.rwdProbe[0].data)
+            iAxonId = self.connections['istub_inh_conn'][i].inputAxon.nodeId
+            iAxon = self.net.resourceMap.inputAxon(iAxonId)[0]
+
+            locs.append((eAxon, iAxon))
+
+        return locs
 
     def get_mean_optimal_action(self):
         assert hasattr(self, 'choices'), "Must run network to get MOA."
@@ -223,7 +317,7 @@ class bandit:
         #TODO finish
 
     def get_probeid_map(self):
-        pids = [self.spikeProbe[0][i].n2Probe.counterId for i in range(self.totalNeurons)]
+        pids = [self.probes['spks'][0][i].n2Probe.counterId for i in range(self.totalNeurons)]
 
         return pids
 
@@ -296,8 +390,8 @@ class bandit:
         #send buffer locations
         for i in range(self.numArms):
             bufferLoc = bufferLocations[i]
-            for j in range(4):
-                setupChannel.write(1, [bufferLoc[j]])
+            setupChannel.write(4, bufferLoc[0])
+            setupChannel.write(4, bufferLoc[1])
 
         #send arm probabilities
         for i in range(self.numArms):

@@ -15,7 +15,8 @@ int writeChannelID = -1;
 int rewardChannelID = -1;
 int spikeChannelID = -1;
 
-int eventCompartment[NUMARMS][4];
+int rewardCompartment[NUMARMS][4];
+int punishCompartment[NUMARMS][4];
 int voting_epoch = 128;
 int cseed = 12340;
 
@@ -38,8 +39,10 @@ int check(runState *s) {
 
     //read the location of the stub group so we can send events to the input neurons
     for (int i = 0; i < NUMARMS; i++) {
-      readChannel(readChannelID, &eventCompartment[i][0], 4);
-      //printf("%d %d %d %d\n", eventCompartment[i][0], eventCompartment[i][1], eventCompartment[i][2], eventCompartment[i][3]);
+      readChannel(readChannelID, &rewardCompartment[i][0], 4);
+      readChannel(readChannelID, &punishCompartment[i][0], 4);
+      //DEBUG
+      //printf("%d %d %d %d\n", rewardCompartment[i][0], rewardCompartment[i][1], rewardCompartment[i][2], rewardCompartment[i][3]);
     }
 
     //read out the probabilities of reward for each arm
@@ -152,8 +155,9 @@ void run_cycle(runState *s) {
   writeChannel(rewardChannelID, &reward, 1);
 
   if (reward) {
-    nx_send_discrete_spike(s->time_step, nx_nth_coreid(eventCompartment[i_highest][2]), eventCompartment[i_highest][3]);
-    //nx_send_discrete_spike(1, nx_nth_coreid(eventCompartment[i_highest][2]), eventCompartment[i_highest][3]);
+    nx_send_discrete_spike(s->time_step, nx_nth_coreid(rewardCompartment[i_highest][2]), rewardCompartment[i_highest][3]);
+  } else {
+    nx_send_discrete_spike(s->time_step, nx_nth_coreid(punishCompartment[i_highest][2]), punishCompartment[i_highest][3]);
   }
 
   return;
