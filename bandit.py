@@ -279,11 +279,11 @@ class bandit:
                                              connectionMask=np.identity(self.numArms))
 
         # Exc stub to &EXC
-        estub_exc_conn = estubs.connect(exc_ands,
+        estub_inh_conn = estubs.connect(inh_ands,
                                         prototype=s_prototypes['halfconn'],
                                         connectionMask=np.identity(self.numArms))
 
-        istub_inh_conn = istubs.connect(inh_ands,
+        istub_exc_conn = istubs.connect(exc_ands,
                                         prototype=s_prototypes['halfconn'],
                                         connectionMask=np.identity(self.numArms))
 
@@ -295,14 +295,14 @@ class bandit:
         self.connections['inh_conns'] = inh_conns
         self.connections['nspk_exc_conns'] = nspk_exc_conns
         self.connections['spk_inh_conns'] = spk_inh_conns
-        self.connections['estub_exc_conn'] = estub_exc_conn
-        self.connections['istub_inh_conn'] = istub_inh_conn
+        self.connections['estub_exc_conn'] = estub_inh_conn
+        self.connections['istub_inh_conn'] = istub_exc_conn
 
         #counter (Debug)
         counters = self.net.createCompartmentGroup(size=self.numArms,
                                          prototype=self.c_prototypes['counterProto'])
 
-        self.connections['soma_counter'] = qneurons.soma.connect(counters,
+        self.connections['soma_counter'] = invneurons.soma.connect(counters,
                                          prototype=self.s_prototypes['single'],
                                          connectionMask=np.identity(self.numArms))
 
