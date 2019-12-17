@@ -66,7 +66,7 @@ class bandit:
 
         # need to send the epoch length, seed, probability (numArms), and pos/neg terminal for each arm,
         # and the probeID <-> neuron map
-        n_outData = 2 + self.numArms * (1 + 2*4) + self.totalNeurons
+        n_outData = 2 + self.numArms * (1 + 2*4) + self.totalNeurons * 4 + 4
         setupChannel = self.board.createChannel(b'setupChannel', "int", n_outData)
         setupChannel.connect(None, self.snip)
         self.outChannels.append(setupChannel)
@@ -147,12 +147,23 @@ class bandit:
                                       compartmentCurrentDecay=4095,
                                       compartmentVoltageDecay=4095)
 
+        #Counter (debug)
+        v_th_max = 2**17-1
+        c_prototypes['counterProto'] = nx.CompartmentPrototype(vThMant=v_th_max,
+                                      compartmentCurrentDecay=4095,
+                                      compartmentVoltageDecay=0)
+
+        c_prototypes['counterProto'].addDendrite([c_prototypes['receiverProto']], nx.COMPARTMENT_JOIN_OPERATION.OR)
+
+        n_prototypes['counterNeuron'] = nx.NeuronPrototype(c_prototypes['counterProto'])
+
         #Connections
         s_prototypes['econn'] = nx.ConnectionPrototype(weight=2)
         s_prototypes['iconn'] = nx.ConnectionPrototype(weight=-2)
         s_prototypes['vthconn'] = nx.ConnectionPrototype(weight=-self.vth)
         s_prototypes['spkconn'] = nx.ConnectionPrototype(weight=self.vth)
         s_prototypes['halfconn'] = nx.ConnectionPrototype(weight = int(self.vth/2)+1)
+        s_prototypes['single'] = nx.ConnectionPrototype(weight = 1)
 
 
         self.c_prototypes = c_prototypes
@@ -178,10 +189,12 @@ class bandit:
         #self.rwdProbe = self.inputs.probe(nx.ProbeParameter.SPIKE)
         if self.recordWeights:
             self.probes['weights'] = self.compartments['memory'].probe(nx.ProbeParameter.COMPARTMENT_VOLTAGE)
-            self.probes['vspks'] = self.compartments['soma'].probe(nx.ProbeParameter.COMPARTMENT_VOLTAGE)
-            self.probes['vnspks'] = self.neurons['invneurons'].soma.probe(nx.ProbeParameter.COMPARTMENT_VOLTAGE)
+            self.probes['counters'] = self.neurons['counterNeurons'].soma.probe(nx.ProbeParameter.COMPARTMENT_VOLTAGE)
+            #self.probes['vspks'] = self.compartments['soma'].probe(nx.ProbeParameter.COMPARTMENT_VOLTAGE)
+            #self.probes['vnspks'] = self.neurons['invneurons'].soma.probe(nx.ProbeParameter.COMPARTMENT_VOLTAGE)
 
     def _create_trackers(self):
+        #TODO - neuronsPerArm
         # -- Create Compartments & Neurons --
         self.compartments = {}
         self.connections = {}
@@ -275,6 +288,9 @@ class bandit:
                                         prototype=s_prototypes['halfconn'],
                                         connectionMask=np.identity(self.numArms))
 
+
+
+
         self.connections['qinv_conns'] = qinv_conns
         self.connections['exc_conns'] = exc_conns
         self.connections['inh_conns'] = inh_conns
@@ -282,6 +298,22 @@ class bandit:
         self.connections['spk_inh_conns'] = spk_inh_conns
         self.connections['estub_exc_conn'] = estub_exc_conn
         self.connections['istub_inh_conn'] = istub_inh_conn
+
+        #counter (Debug)
+        counterNeurons = self.net.createNeuronGroup(size=self.numArms,
+                                         prototype=self.n_prototypes['counterNeuron'])
+
+        resetStub = self.net.createInputStubGroup(size=1)
+
+        self.connections['soma_counter'] = qneurons.soma.connect(counterNeurons.soma,
+                                         prototype=self.s_prototypes['econn'],
+                                         connectionMask=np.identity(self.numArms))
+
+        self.connections['counter_reset'] = resetStub.connect(qneurons.dendrites[0],
+                                         prototype=self.s_prototypes['spkconn'],
+                                         connectionMask=np.ones((self.numArms, 1)))
+
+        self.neurons['counterNeurons'] = counterNeurons
 
 
     def _create_SNIPs(self):
@@ -303,6 +335,16 @@ class bandit:
             iAxon = self.net.resourceMap.inputAxon(iAxonId)[0]
 
             locs.append((eAxon, iAxon))
+
+        return locs
+
+    def get_counter_locations(self):
+        locs = []
+        for i in range(self.totalNeurons):
+            compartmentId = self.neurons['counterNeurons'][i].nodeId
+            compartmentLoc = self.net.resourceMap.compartmentMap[compartmentId]
+
+            locs.append(compartmentLoc)
 
         return locs
 
@@ -354,7 +396,7 @@ class bandit:
         self.board.run(self.votingEpoch * epochs)
         self.choices = np.array(dataChannel.read(epochs))
         self.rewards = np.array(rewardChannel.read(epochs))
-        self.spikes = np.array(spikeChannel.read(epochs*self.numArms), dtype='int').reshape(epochs, self.numArms)
+        self.spikes = np.array(spikeChannel.read(epochs*self.numArms), dtype='int')/(2*2**6)
 
         return (self.choices, self.rewards, self.spikes)
 
@@ -366,8 +408,12 @@ class bandit:
         self.board.disconnect()
 
     def _send_config(self):
-        probeIDMap = self.get_probeid_map()
+        #probeIDMap = self.get_probeid_map()
         bufferLocations = self.get_buffer_locations()
+        counterLocations = self.get_counter_locations()
+        #location to send spikes to reset the counter neurons
+        resetAxonId = self.connections['counter_reset'][0].inputAxon.nodeId
+        resetAxon = self.net.resourceMap.inputAxon(resetAxonId)[0]
 
         #send the epoch length
         setupChannel = self.outChannels[0]
@@ -376,11 +422,9 @@ class bandit:
         #send the random seed
         setupChannel.write(1, [self.seed])
 
-        # #send reinforcementChannel locations
-        # for i in range(self.numArms):
-        #     rcLoc = rcLocations[i]
-        #     for j in range(4):
-        #         setupChannel.write(1, [rcLoc[0][j]])
+        #send arm probabilities
+        for i in range(self.numArms):
+            setupChannel.write(1, [self.probabilities[i]])
 
         #send buffer locations
         for i in range(self.numArms):
@@ -388,13 +432,12 @@ class bandit:
             setupChannel.write(4, bufferLoc[0])
             setupChannel.write(4, bufferLoc[1])
 
-        #send arm probabilities
-        for i in range(self.numArms):
-            setupChannel.write(1, [self.probabilities[i]])
-
-        #send probe map
+        #send the counter locations
         for i in range(self.totalNeurons):
-            setupChannel.write(1, [probeIDMap[i]])
+            setupChannel.write(4, counterLocations[i][:4])
+
+        #send the reset stub axon
+        setupChannel.write(4, resetAxon)
 
         # #DEBUG
         # for i in range(self.totalNeurons):

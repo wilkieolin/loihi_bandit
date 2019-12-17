@@ -1,5 +1,6 @@
 #include "nxsdk.h"
 int check(runState *s);
 int get_reward(int p);
-int get_highest(int *counts);
+void get_counter_voltages();
+int get_highest();
 void run_cycle(runState *s);

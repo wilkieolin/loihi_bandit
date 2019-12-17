@@ -7,8 +7,7 @@
 #include <unistd.h>
 
 int probabilities[NUMARMS];
-int spike_counts[NUMARMS];
-int probe_map[TOTALNEURONS];
+int counterVoltages[NUMARMS];
 
 int readChannelID = -1;
 int writeChannelID = -1;
@@ -17,6 +16,8 @@ int spikeChannelID = -1;
 
 int rewardCompartment[NUMARMS][4];
 int punishCompartment[NUMARMS][4];
+int counterCompartment[NUMARMS][4];
+int resetAxon[4];
 int voting_epoch = 128;
 int cseed = 12340;
 int cycle = 0;
@@ -38,6 +39,9 @@ int check(runState *s) {
     readChannel(readChannelID, &cseed, 1);
     srand(cseed);
 
+    //read out the probabilities of reward for each arm
+    readChannel(readChannelID, &probabilities[0], NUMARMS);
+
     //read the location of the stub group so we can send events to the input neurons
     for (int i = 0; i < NUMARMS; i++) {
       readChannel(readChannelID, &rewardCompartment[i][0], 4);
@@ -46,19 +50,13 @@ int check(runState *s) {
       //printf("%d %d %d %d\n", rewardCompartment[i][0], rewardCompartment[i][1], rewardCompartment[i][2], rewardCompartment[i][3]);
     }
 
-    //read out the probabilities of reward for each arm
-    readChannel(readChannelID, &probabilities[0], NUMARMS);
-
-    //setup an array to hold the map for probeid <-> neuron
-    printf("Probe IDs: ");
+    //read the location of the counter neurons
     for (int i = 0; i < TOTALNEURONS; i++) {
-      readChannel(readChannelID, &probe_map[i], 1);
-      printf("%d ", probe_map[i]);
+      readChannel(readChannelID, &counterCompartment[i][0], 4);
     }
-    printf("\n");
 
-    //setup an array to hold the spike counters & init to zero
-    for (int i = 0; i < NUMARMS; i++) { spike_counts[i] = 0; }
+    //read the location of the reset stub axon
+    readChannel(readChannelID, &resetAxon[0], 4);
   }
 
   if (s->time_step % voting_epoch == 0) {
@@ -77,7 +75,29 @@ int get_reward(int p) {
   }
 }
 
-int get_highest(int *counts) {
+void get_counter_voltages() {
+  CoreId core;
+  int cxId = 0;
+  NeuronCore *nc;
+  CxState cxs;
+
+  printf("Voltages: ");
+  for (int i = 0; i < NUMARMS; i++) {
+    //get the core the counter is on
+    core = nx_nth_coreid(counterCompartment[i][2]);
+    nc = NEURON_PTR(core);
+    //get the compartment the voltage is in
+    cxId = counterCompartment[i][3];
+    cxs = nc->cx_state[cxId];
+    counterVoltages[i] = cxs.V;
+    printf("%d ", counterVoltages[i]);
+  }
+  printf("\n");
+
+  return;
+}
+
+int get_highest() {
   // choose the arm with the highest count, randomly breaking ties
 
   int highest = -1;
@@ -88,15 +108,15 @@ int get_highest(int *counts) {
 
   //find the max
   for (int i = 0; i < NUMARMS; i++) {
-    if (counts[i] > highest) {
-      highest = counts[i];
+    if (counterVoltages[i] > highest) {
+      highest = counterVoltages[i];
       i_highest = i;
     }
   }
 
   //find any values which are tied to it
   for (int i = 0; i < NUMARMS; i++) {
-    if (counts[i] == highest) {
+    if (counterVoltages[i] == highest) {
       ties++;
       tie_locations[i] = 1;
     } else {
@@ -132,21 +152,26 @@ void run_cycle(runState *s) {
     return;
   }
 
-  int neuron_count = 0;
-  int probe_id = 0;
-  //get the spikes counted on each arm since the last epoch & write out by arm
-  for (int i = 0; i < TOTALNEURONS; i++) {
-    spike_counts[i] = 0;
-    //copy each group's spike count from the Lakemont registers
-    probe_id = probe_map[i];
-    neuron_count = SPIKE_COUNT[(s->time_step-1)&3][probe_id];
-    printf("%d ", neuron_count);
-    spike_counts[i] += neuron_count;
-    //clear the registers
-    SPIKE_COUNT[(s->time_step-1)&3][probe_id] = 0;
-    writeChannel(spikeChannelID, &spike_counts[i], 1);
+  // int neuron_count = 0;
+  // int probe_id = 0;
+  // //get the spikes counted on each arm since the last epoch & write out by arm
+  // for (int i = 0; i < TOTALNEURONS; i++) {
+  //   spike_counts[i] = 0;
+  //   //copy each group's spike count from the Lakemont registers
+  //   probe_id = probe_map[i];
+  //   neuron_count = SPIKE_COUNT[(s->time_step-1)&3][probe_id];
+  //   //printf("%d ", neuron_count);
+  //   spike_counts[i] += neuron_count;
+  //   //clear the registers
+  //   SPIKE_COUNT[(s->time_step-1)&3][probe_id] = 0;
+  //   writeChannel(spikeChannelID, &spike_counts[i], 1);
+  // }
+  //printf("\n");
+
+  get_counter_voltages();
+  for (int i = 0; i < NUMARMS; i++) {
+    writeChannel(spikeChannelID, &counterVoltages[i], 1);
   }
-  printf("\n");
 
   //DEBUG
   //int i_highest = get_highest(&spike_counts[0]);
