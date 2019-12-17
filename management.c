@@ -19,11 +19,13 @@ int punishCompartment[NUMARMS][4];
 int counterCompartment[NUMARMS][4];
 int resetAxon[4];
 int voting_epoch = 128;
+int epsilon = 10;
 int cseed = 12340;
 int cycle = 0;
 
 int check(runState *s) {
   if (s->time_step == 1) {
+    printf("Setting up...\n");
     //setup the channels
     readChannelID = getChannelID("setupChannel");
     writeChannelID = getChannelID("dataChannel");
@@ -35,6 +37,9 @@ int check(runState *s) {
     //read out the length of the voting epoch
     readChannel(readChannelID, &voting_epoch, 1);
 
+    //read the epsilon
+    readChannel(readChannelID, &epsilon, 1);
+
     //read the random seed
     readChannel(readChannelID, &cseed, 1);
     srand(cseed);
@@ -42,6 +47,7 @@ int check(runState *s) {
     //read out the probabilities of reward for each arm
     readChannel(readChannelID, &probabilities[0], NUMARMS);
 
+    printf("Got variables\n");
     //read the location of the stub group so we can send events to the input neurons
     for (int i = 0; i < NUMARMS; i++) {
       readChannel(readChannelID, &rewardCompartment[i][0], 4);
@@ -49,14 +55,13 @@ int check(runState *s) {
       //DEBUG
       //printf("%d %d %d %d\n", rewardCompartment[i][0], rewardCompartment[i][1], rewardCompartment[i][2], rewardCompartment[i][3]);
     }
+    printf("Got R/P compartments\n");
 
     //read the location of the counter neurons
-    for (int i = 0; i < TOTALNEURONS; i++) {
+    for (int i = 0; i < NUMARMS; i++) {
       readChannel(readChannelID, &counterCompartment[i][0], 4);
     }
-
-    //read the location of the reset stub axon
-    readChannel(readChannelID, &resetAxon[0], 4);
+    printf("Got Counter compartments, done.\n");
   }
 
   if (s->time_step % voting_epoch == 0) {
@@ -81,6 +86,7 @@ void get_counter_voltages() {
   NeuronCore *nc;
   CxState cxs;
 
+  //read out the counter soma voltages
   printf("Voltages: ");
   for (int i = 0; i < NUMARMS; i++) {
     //get the core the counter is on
@@ -90,6 +96,7 @@ void get_counter_voltages() {
     cxId = counterCompartment[i][3];
     cxs = nc->cx_state[cxId];
     counterVoltages[i] = cxs.V;
+    nc->cx_state[cxId].V = 0;
     printf("%d ", counterVoltages[i]);
   }
   printf("\n");
@@ -152,30 +159,21 @@ void run_cycle(runState *s) {
     return;
   }
 
-  // int neuron_count = 0;
-  // int probe_id = 0;
-  // //get the spikes counted on each arm since the last epoch & write out by arm
-  // for (int i = 0; i < TOTALNEURONS; i++) {
-  //   spike_counts[i] = 0;
-  //   //copy each group's spike count from the Lakemont registers
-  //   probe_id = probe_map[i];
-  //   neuron_count = SPIKE_COUNT[(s->time_step-1)&3][probe_id];
-  //   //printf("%d ", neuron_count);
-  //   spike_counts[i] += neuron_count;
-  //   //clear the registers
-  //   SPIKE_COUNT[(s->time_step-1)&3][probe_id] = 0;
-  //   writeChannel(spikeChannelID, &spike_counts[i], 1);
-  // }
-  //printf("\n");
-
   get_counter_voltages();
+
   for (int i = 0; i < NUMARMS; i++) {
     writeChannel(spikeChannelID, &counterVoltages[i], 1);
   }
 
+  int i_highest = -1;
+  if (rand() % 100 < epsilon) {
+    i_highest = rand() % NUMARMS;
+  } else {
+    i_highest = get_highest();
+  }
+
   //DEBUG
-  //int i_highest = get_highest(&spike_counts[0]);
-  int i_highest = cycle % NUMARMS;
+  //int i_highest = cycle % NUMARMS;
   //return the arm which we chose to the host
   writeChannel(writeChannelID, &i_highest, 1);
 

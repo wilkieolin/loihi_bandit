@@ -7,12 +7,13 @@ from nxsdk.graph.monitor.probes import *
 from nxsdk.graph.processes.phase_enums import Phase
 
 class bandit:
-    def __init__(self, numArms=5, neuronsPerArm=1, votingEpoch=128, epochs=10, **kwargs):
+    def __init__(self, numArms=5, neuronsPerArm=1, votingEpoch=128, epochs=10, epsilon=0.1, **kwargs):
         self.numArms = numArms
         self.neuronsPerArm = neuronsPerArm
         self.totalNeurons = numArms * neuronsPerArm
         self.votingEpoch = votingEpoch
         self.epochs = epochs
+        self.epsilon = int(100*epsilon)
 
         #set default values for weights and probabilities
         if 'probabilities' in kwargs:
@@ -66,7 +67,7 @@ class bandit:
 
         # need to send the epoch length, seed, probability (numArms), and pos/neg terminal for each arm,
         # and the probeID <-> neuron map
-        n_outData = 2 + self.numArms * (1 + 2*4) + self.totalNeurons * 4 + 4
+        n_outData = 3 + self.numArms * (1 + 2*4) + self.totalNeurons * 4
         setupChannel = self.board.createChannel(b'setupChannel', "int", n_outData)
         setupChannel.connect(None, self.snip)
         self.outChannels.append(setupChannel)
@@ -153,9 +154,7 @@ class bandit:
                                       compartmentCurrentDecay=4095,
                                       compartmentVoltageDecay=0)
 
-        c_prototypes['counterProto'].addDendrite([c_prototypes['receiverProto']], nx.COMPARTMENT_JOIN_OPERATION.OR)
-
-        n_prototypes['counterNeuron'] = nx.NeuronPrototype(c_prototypes['counterProto'])
+        c_prototypes['counterProto']
 
         #Connections
         s_prototypes['econn'] = nx.ConnectionPrototype(weight=2)
@@ -163,7 +162,7 @@ class bandit:
         s_prototypes['vthconn'] = nx.ConnectionPrototype(weight=-self.vth)
         s_prototypes['spkconn'] = nx.ConnectionPrototype(weight=self.vth)
         s_prototypes['halfconn'] = nx.ConnectionPrototype(weight = int(self.vth/2)+1)
-        s_prototypes['single'] = nx.ConnectionPrototype(weight = 1)
+        s_prototypes['single'] = nx.ConnectionPrototype(weight = 2)
 
 
         self.c_prototypes = c_prototypes
@@ -189,7 +188,7 @@ class bandit:
         #self.rwdProbe = self.inputs.probe(nx.ProbeParameter.SPIKE)
         if self.recordWeights:
             self.probes['weights'] = self.compartments['memory'].probe(nx.ProbeParameter.COMPARTMENT_VOLTAGE)
-            self.probes['counters'] = self.neurons['counterNeurons'].soma.probe(nx.ProbeParameter.COMPARTMENT_VOLTAGE)
+            self.probes['counters'] = self.compartments['counters'].probe(nx.ProbeParameter.COMPARTMENT_VOLTAGE)
             #self.probes['vspks'] = self.compartments['soma'].probe(nx.ProbeParameter.COMPARTMENT_VOLTAGE)
             #self.probes['vnspks'] = self.neurons['invneurons'].soma.probe(nx.ProbeParameter.COMPARTMENT_VOLTAGE)
 
@@ -300,20 +299,14 @@ class bandit:
         self.connections['istub_inh_conn'] = istub_inh_conn
 
         #counter (Debug)
-        counterNeurons = self.net.createNeuronGroup(size=self.numArms,
-                                         prototype=self.n_prototypes['counterNeuron'])
+        counters = self.net.createCompartmentGroup(size=self.numArms,
+                                         prototype=self.c_prototypes['counterProto'])
 
-        resetStub = self.net.createInputStubGroup(size=1)
-
-        self.connections['soma_counter'] = qneurons.soma.connect(counterNeurons.soma,
-                                         prototype=self.s_prototypes['econn'],
+        self.connections['soma_counter'] = qneurons.soma.connect(counters,
+                                         prototype=self.s_prototypes['single'],
                                          connectionMask=np.identity(self.numArms))
 
-        self.connections['counter_reset'] = resetStub.connect(qneurons.dendrites[0],
-                                         prototype=self.s_prototypes['spkconn'],
-                                         connectionMask=np.ones((self.numArms, 1)))
-
-        self.neurons['counterNeurons'] = counterNeurons
+        self.compartments['counters'] = counters
 
 
     def _create_SNIPs(self):
@@ -341,7 +334,7 @@ class bandit:
     def get_counter_locations(self):
         locs = []
         for i in range(self.totalNeurons):
-            compartmentId = self.neurons['counterNeurons'][i].nodeId
+            compartmentId = self.compartments['counters'][i].nodeId
             compartmentLoc = self.net.resourceMap.compartmentMap[compartmentId]
 
             locs.append(compartmentLoc)
@@ -396,7 +389,8 @@ class bandit:
         self.board.run(self.votingEpoch * epochs)
         self.choices = np.array(dataChannel.read(epochs))
         self.rewards = np.array(rewardChannel.read(epochs))
-        self.spikes = np.array(spikeChannel.read(epochs*self.numArms), dtype='int')/(2*2**6)
+        singlewgt = self.s_prototypes['single'].weight
+        self.spikes = np.array(spikeChannel.read(epochs*self.numArms), dtype='int').reshape(epochs, self.numArms)/(singlewgt*2**6)
 
         return (self.choices, self.rewards, self.spikes)
 
@@ -411,13 +405,12 @@ class bandit:
         #probeIDMap = self.get_probeid_map()
         bufferLocations = self.get_buffer_locations()
         counterLocations = self.get_counter_locations()
-        #location to send spikes to reset the counter neurons
-        resetAxonId = self.connections['counter_reset'][0].inputAxon.nodeId
-        resetAxon = self.net.resourceMap.inputAxon(resetAxonId)[0]
 
         #send the epoch length
         setupChannel = self.outChannels[0]
         setupChannel.write(1, [self.votingEpoch])
+        #write the epsilon value
+        setupChannel.write(1, [self.epsilon])
 
         #send the random seed
         setupChannel.write(1, [self.seed])
@@ -435,13 +428,6 @@ class bandit:
         #send the counter locations
         for i in range(self.totalNeurons):
             setupChannel.write(4, counterLocations[i][:4])
-
-        #send the reset stub axon
-        setupChannel.write(4, resetAxon)
-
-        # #DEBUG
-        # for i in range(self.totalNeurons):
-        #     setupChannel.write(1, [32+i])
 
 
     def _start(self):
