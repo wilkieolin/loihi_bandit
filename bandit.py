@@ -6,6 +6,14 @@ import re
 from nxsdk.graph.monitor.probes import *
 from nxsdk.graph.processes.phase_enums import Phase
 
+def pick_weights(numArms, excess):
+    highest = np.random.random()*0.2 + 0.8
+    next_highest = highest - excess
+    rest = np.random.random(numArms - 2)*next_highest
+    probs = np.concatenate(([highest], [next_highest], rest))
+    np.random.shuffle(probs)
+    return (probs*100).astype('int')
+
 class bandit:
     def __init__(self, numArms=5, neuronsPerArm=1, votingEpoch=128, epochs=10, epsilon=0.1, **kwargs):
         self.numArms = numArms
@@ -28,7 +36,6 @@ class bandit:
 
         self.seed = kwargs.get('seed', 329801)
         self.recordWeights = kwargs.get('recordWeights', False)
-        self.snipProbe = kwargs.get('snipProbe', True)
 
         #initialize the network
         self.net = nx.NxNet()
@@ -174,11 +181,7 @@ class bandit:
         # -- Create Probes --
         self.probes = {}
 
-        if self.snipProbe:
-            customSpikeProbeCond = SpikeProbeCondition(tStart=10000000)
-        else:
-            customSpikeProbeCond = SpikeProbeCondition(tStart=1)
-        self.probes['spks'] = self.compartments['soma'].probe(nx.ProbeParameter.SPIKE, customSpikeProbeCond)
+        self.probes['spks'] = self.compartments['soma'].probe(nx.ProbeParameter.SPIKE)
         self.probes['nspks'] = self.neurons['invneurons'].soma.probe(nx.ProbeParameter.SPIKE)
 
         self.probes['eand'] = self.compartments['exc_ands'].probe(nx.ProbeParameter.SPIKE)
