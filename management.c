@@ -87,7 +87,7 @@ void get_counter_voltages() {
   CxState cxs;
 
   //read out the counter soma voltages
-  printf("Voltages: ");
+  //printf("Voltages: ");
   for (int i = 0; i < NUMARMS; i++) {
     //get the core the counter is on
     core = nx_nth_coreid(counterCompartment[i][2]);
@@ -97,9 +97,9 @@ void get_counter_voltages() {
     cxs = nc->cx_state[cxId];
     counterVoltages[i] = cxs.V;
     nc->cx_state[cxId].V = 0;
-    printf("%d ", counterVoltages[i]);
+    //printf("%d ", counterVoltages[i]);
   }
-  printf("\n");
+  //printf("\n");
 
   return;
 }
