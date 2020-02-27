@@ -60,12 +60,6 @@ class bandit:
         self.board = self.compiler.compile(self.net)
         self.board.sync = True
 
-    def _create_arm(self):
-        self.arms.append(arm(self,
-            self.net,
-            neuronsPerArm = self.neuronsPerArm,
-            recordWeights = self.recordWeights))
-
     def _create_channels(self):
         assert hasattr(self, 'board'), "Must compile net to board before creating channels."
         assert hasattr(self, 'snip'), "Must add SNIP before creating channels."
@@ -208,12 +202,12 @@ class bandit:
         s_prototypes = self.s_prototypes
 
         #create Q & wire neurons
-        qneurons = self.net.createNeuronGroup(size=self.numArms,
+        qneurons = self.net.createNeuronGroup(size=self.totalNeurons,
                                          prototype=n_prototypes['qProto'])
 
         qneurons_softreset = qneurons.soma.connect(qneurons.dendrites[0],
                                                   prototype=s_prototypes['vthconn'],
-                                                  connectionMask=np.identity(self.numArms))
+                                                  connectionMask=np.identity(self.totalNeurons))
 
         memory = qneurons.dendrites[0].dendrites[0]
 
@@ -224,25 +218,26 @@ class bandit:
         self.compartments['memory'] = memory
 
         #create & wire inverters
-        invneurons = self.net.createNeuronGroup(size=self.numArms,
+        invneurons = self.net.createNeuronGroup(size=self.totalNeurons,
                                      prototype=n_prototypes['invNeuron'])
 
+        #(Provides the constant 1 signal to inverters)
         driver = self.net.createCompartmentGroup(size=1,
                                             prototype=c_prototypes['spkProto'])
 
         driver_connection = driver.connect(invneurons.soma,
                                            prototype=s_prototypes['spkconn'],
-                                          connectionMask=np.ones((self.numArms,1)))
+                                          connectionMask=np.ones((self.totalNeurons,1)))
 
         self.neurons['invneurons'] = invneurons
         self.compartments['driver'] = driver
         self.connections['driver_connection'] = driver_connection
 
         #create ANDs
-        exc_ands = self.net.createCompartmentGroup(size=self.numArms,
+        exc_ands = self.net.createCompartmentGroup(size=self.totalNeurons,
                                          prototype=c_prototypes['andProto'])
 
-        inh_ands = self.net.createCompartmentGroup(size=self.numArms,
+        inh_ands = self.net.createCompartmentGroup(size=self.totalNeurons,
                                          prototype=c_prototypes['andProto'])
 
         self.compartments['exc_ands'] = exc_ands
@@ -253,6 +248,13 @@ class bandit:
         estubs = self.net.createInputStubGroup(size=self.numArms)
         istubs = self.net.createInputStubGroup(size=self.numArms)
 
+        #create the mask that will map the reward/punishment stubs to the right q-trackers,
+        # and q-trackers to output
+        inds = (np.arange(self.totalNeurons), np.divmod(np.arange(self.totalNeurons), self.neuronsPerArm)[0])
+        stub_to_tracker = np.zeros((self.totalNeurons, self.numArms))
+        stub_to_tracker[inds] = 1
+        tracker_to_stub = stub_to_tracker.transpose()
+
         self.stubs['estubs'] = estubs
         self.stubs['istubs'] = istubs
 
@@ -260,35 +262,36 @@ class bandit:
         # Q to inverter
         qinv_conns = qneurons.soma.connect(invneurons.dendrites[0],
                                          prototype=s_prototypes['spkconn'],
-                                          connectionMask=np.identity(self.numArms))
+                                          connectionMask=np.identity(self.totalNeurons))
         # &EXC to Q memory
         exc_conns = exc_ands.connect(memory,
                                     prototype=s_prototypes['econn'],
-                                    connectionMask=np.identity(self.numArms))
+                                    connectionMask=np.identity(self.totalNeurons))
 
         # &INH to Q memory
         inh_conns = inh_ands.connect(memory,
                                     prototype=s_prototypes['iconn'],
-                                    connectionMask=np.identity(self.numArms))
+                                    connectionMask=np.identity(self.totalNeurons))
 
         # !Q to &EXC
         nspk_exc_conns = invneurons.soma.connect(exc_ands,
                                                 prototype=s_prototypes['halfconn'],
-                                                connectionMask=np.identity(self.numArms))
+                                                connectionMask=np.identity(self.totalNeurons))
 
         # Q to &INH
         spk_inh_conns = qneurons.soma.connect(inh_ands,
                                              prototype=s_prototypes['halfconn'],
-                                             connectionMask=np.identity(self.numArms))
+                                             connectionMask=np.identity(self.totalNeurons))
 
         # Exc stub to &EXC
         estub_inh_conn = estubs.connect(inh_ands,
                                         prototype=s_prototypes['halfconn'],
-                                        connectionMask=np.identity(self.numArms))
+                                        connectionMask=stub_to_tracker)
 
+        # Inh stub to &INH
         istub_exc_conn = istubs.connect(exc_ands,
                                         prototype=s_prototypes['halfconn'],
-                                        connectionMask=np.identity(self.numArms))
+                                        connectionMask=stub_to_tracker)
 
 
 
@@ -307,7 +310,7 @@ class bandit:
 
         self.connections['soma_counter'] = invneurons.soma.connect(counters,
                                          prototype=self.s_prototypes['single'],
-                                         connectionMask=np.identity(self.numArms))
+                                         connectionMask=tracker_to_stub)
 
         self.compartments['counters'] = counters
 
@@ -336,7 +339,7 @@ class bandit:
 
     def get_counter_locations(self):
         locs = []
-        for i in range(self.totalNeurons):
+        for i in range(self.numArms):
             compartmentId = self.compartments['counters'][i].nodeId
             compartmentLoc = self.net.resourceMap.compartmentMap[compartmentId]
 
@@ -429,7 +432,7 @@ class bandit:
             setupChannel.write(4, bufferLoc[1])
 
         #send the counter locations
-        for i in range(self.totalNeurons):
+        for i in range(self.numArms):
             setupChannel.write(4, counterLocations[i][:4])
 
 
