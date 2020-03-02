@@ -248,15 +248,13 @@ class bandit:
         estubs = self.net.createInputStubGroup(size=self.numArms)
         istubs = self.net.createInputStubGroup(size=self.numArms)
 
-        #create the mask that will map the reward/punishment stubs to the right q-trackers,
-        # and q-trackers to output
-        inds = (np.arange(self.totalNeurons), np.divmod(np.arange(self.totalNeurons), self.neuronsPerArm)[0])
-        stub_to_tracker = np.zeros((self.totalNeurons, self.numArms))
-        stub_to_tracker[inds] = 1
-        tracker_to_stub = stub_to_tracker.transpose()
-
         self.stubs['estubs'] = estubs
         self.stubs['istubs'] = istubs
+
+        #create the mask that will map the reward/punishment stubs to the right q-trackers,
+        # and q-trackers to output
+        tracker_to_stub = np.tile(np.identity(self.numArms), self.neuronsPerArm)
+        stub_to_tracker = tracker_to_stub.transpose()
 
         # -- Create Higher Connections --
         # Q to inverter
