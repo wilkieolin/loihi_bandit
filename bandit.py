@@ -1,7 +1,6 @@
 import os
 import nxsdk.api.n2a as nx
 import numpy as np
-import matplotlib.pyplot as plt
 import re
 from nxsdk.graph.monitor.probes import *
 from nxsdk.graph.processes.phase_enums import Phase
@@ -156,8 +155,6 @@ class bandit:
                                       compartmentCurrentDecay=4095,
                                       compartmentVoltageDecay=0)
 
-        c_prototypes['counterProto']
-
         #Connections
         s_prototypes['econn'] = nx.ConnectionPrototype(weight=2)
         s_prototypes['iconn'] = nx.ConnectionPrototype(weight=-2)
@@ -192,7 +189,6 @@ class bandit:
             #self.probes['vnspks'] = self.neurons['invneurons'].soma.probe(nx.ProbeParameter.COMPARTMENT_VOLTAGE)
 
     def _create_trackers(self):
-        #TODO - neuronsPerArm
         # -- Create Compartments & Neurons --
         self.compartments = {}
         self.connections = {}
