@@ -1,0 +1,3 @@
+#define N_STATES 5
+#define N_CONDITIONS 2
+#define N_ESTIMATES (N_STATES*N_CONDITIONS)

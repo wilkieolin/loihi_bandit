@@ -16,14 +16,26 @@ class conditional_bandit:
         self.n_epochs = kwargs.get("n_epochs", 100)
         self.epsilon = kwargs.get("epsilon", 0.1)
 
+        p_rewards = kwargs.get("p_rewards")
+        if p_rewards is not None:
+            assert p_rewards.shape == (self.n_conditions, self.n_states), "Rewards must be in (n_conditions, n_states) format."
+
+            #convert 0-1 (probability) range to 0-100 (percentile, int)
+            self.p_rewards = np.clip(p_rewards * 100, 0, 100).astype(np.int)
+        else:
+            self.p_rewards = np.random.randint(100, size=(self.n_conditions, self.n_states))
+
+        self.recordWeights = kwargs.get('recordWeights', False)
+        self.recordSpikes = kwargs.get('recordSpikes', False)
+
         self.net = nx.NxNet()
         self.vth = 255
+        self.started = False
 
         self._create_prototypes(self.vth)
         self._create_trackers()
         self._create_stubs()
         self._create_logic()
-        self._wire_feedback()
 
     def _create_logic(self):
         #create the condition-filtering ands
@@ -65,7 +77,7 @@ class conditional_bandit:
         self.connections['state_to_rwd'] =  state_to_rwd
         self.connections['condition_to_pun'] =  condition_to_pun
         self.connections['state_to_pun'] =  state_to_pun
-        
+
     def _create_prototypes(self):
         self.prototypes = prototypes.create_prototypes(self.vth)
 
