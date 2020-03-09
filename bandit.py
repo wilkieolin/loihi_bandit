@@ -36,6 +36,7 @@ class bandit:
 
         self.seed = kwargs.get('seed', 329801)
         self.recordWeights = kwargs.get('recordWeights', False)
+        self.recordSpikes = kwargs.get('recordSpikes', False)
 
         #initialize the network
         self.net = nx.NxNet()
@@ -175,11 +176,12 @@ class bandit:
         # -- Create Probes --
         self.probes = {}
 
-        self.probes['spks'] = self.compartments['soma'].probe(nx.ProbeParameter.SPIKE)
-        self.probes['nspks'] = self.neurons['invneurons'].soma.probe(nx.ProbeParameter.SPIKE)
+        if self.recordSpikes:
+            self.probes['spks'] = self.compartments['soma'].probe(nx.ProbeParameter.SPIKE)
+            self.probes['nspks'] = self.neurons['invneurons'].soma.probe(nx.ProbeParameter.SPIKE)
 
-        self.probes['eand'] = self.compartments['exc_ands'].probe(nx.ProbeParameter.SPIKE)
-        self.probes['iand'] = self.compartments['inh_ands'].probe(nx.ProbeParameter.SPIKE)
+            self.probes['eand'] = self.compartments['exc_ands'].probe(nx.ProbeParameter.SPIKE)
+            self.probes['iand'] = self.compartments['inh_ands'].probe(nx.ProbeParameter.SPIKE)
 
         #self.vSpkProbe = self.integrator.probe(nx.ProbeParameter.SPIKE)
         #self.rwdProbe = self.inputs.probe(nx.ProbeParameter.SPIKE)
@@ -351,6 +353,7 @@ class bandit:
         #TODO finish
 
     def get_probeid_map(self):
+        assert self.recordSpikes, "Must be recording spikes to have a probemap to access."
         pids = [self.probes['spks'][0][i].n2Probe.counterId for i in range(self.totalNeurons)]
 
         return pids
