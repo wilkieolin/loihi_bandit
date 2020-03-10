@@ -216,7 +216,9 @@ class conditional_bandit:
                 self.n_states,
                 n_per_state=self.n_per_state,
                 l_epoch=self.l_epoch,
-                epsilon=self.epsilon)
+                epsilon=self.epsilon,
+                recordWeights=self.recordWeights,
+                recordSpikes=self.recordSpikes)
 
             self.trackers.append(state_tracker)
     #END
@@ -299,7 +301,7 @@ class conditional_bandit:
         singlewgt = self.s_prototypes['single'].weight
         self.spikes = np.array(spikeChannel.read(epochs*self.n_estimates), dtype='int').reshape(epochs, self.n_estimates)/(singlewgt*2**6)
 
-        return (self.choices, self.rewards, self.spikes)
+        return (self.conditions, self.choices, self.rewards, self.spikes)
     #END
 
     def _send_config(self):

@@ -47,7 +47,11 @@ int check(runState *s) {
     srand(cseed);
 
     //read out the probabilities of reward for each arm
-    readChannel(readChannelID, &probabilities[0], N_ESTIMATES);
+    for (int i = 0; i < N_CONDITIONS; i++) {
+      for (int j = 0; j < N_STATES; j++) {
+        readChannel(readChannelID, &probabilities[i][j], 1);
+      }
+    }
 
     printf("Got variables\n");
     //read the location of the stub group so we can send events to the reward/punishment stubs
@@ -66,8 +70,10 @@ int check(runState *s) {
     printf("Got R/P/State/Condition compartments\n");
 
     //read the location of the counter neurons
-    for (int i = 0; i < N_ESTIMATES; i++) {
-      readChannel(readChannelID, &counterCompartment[i][0], 4);
+    for (int i = 0; i < N_CONDITIONS; i++) {
+      for (int j = 0; j < N_STATES; j++) {
+        readChannel(readChannelID, &counterCompartment[i][j][0], 4);
+      }
     }
     printf("Got Counter compartments, done.\n");
   }
@@ -196,8 +202,10 @@ void run_cycle(runState *s) {
   get_counter_voltages();
   reset_counter_voltages();
 
-  for (int i = 0; i < N_ESTIMATES; i++) {
-    writeChannel(spikeChannelID, &counterVoltages[i], 1);
+  for (int i = 0; i < N_CONDITIONS; i++) {
+    for (int j = 0; j < N_STATES; j++) {
+      writeChannel(spikeChannelID, &counterVoltages[i][j], 1);
+    }
   }
 
   int i_highest = -1;

@@ -31,6 +31,7 @@ class tracker:
             self._create_prototypes()
 
         self._create_trackers()
+        self._create_probes()
 
     def _create_prototypes(self):
         prototypes = prototypes.create_prototypes(self.vth)
