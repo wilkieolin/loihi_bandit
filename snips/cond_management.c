@@ -14,10 +14,12 @@ int writeChannelID = -1;
 int rewardChannelID = -1;
 int spikeChannelID = -1;
 
-int rewardCompartment[N_STATES][4];
-int punishCompartment[N_STATES][4];
+int rewardCompartment[4];
+int punishCompartment[4];
+int stateCompartments[N_STATES];
+int conditionCompartments[N_CONDITIONS];
 int counterCompartment[N_CONDITIONS][N_STATES][4];
-int resetAxon[4];
+
 int voting_epoch = 128;
 int epsilon = 10;
 int cseed = 12340;

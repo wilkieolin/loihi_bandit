@@ -34,10 +34,51 @@ class conditional_bandit:
         self.vth = 255
         self.started = False
 
+        #create the virtual network
         self._create_prototypes(self.vth)
         self._create_trackers()
         self._create_stubs()
         self._create_logic()
+
+        #compile and link it to Loihi
+        self._compile()
+        self._create_SNIPs()
+        self._create_channels()
+    #END
+
+    def _compile(self):
+        self.compiler = nx.N2Compiler()
+        self.board = self.compiler.compile(self.net)
+        self.board.sync = True
+    #END
+
+    def _create_channels(self):
+        assert hasattr(self, 'board'), "Must compile net to board before creating channels."
+        assert hasattr(self, 'snip'), "Must add SNIP before creating channels."
+        self.outChannels = []
+        self.inChannels = []
+
+        # need to send the epoch length, seed,
+        # and for each state: probability (1) and counter compartment for each state
+        # as well as the feedback (rwd/punishment/condition/state)
+        n_outData = 3 + self.n_estimates * (1 + 3*4) + (self.n_conditions + self.n_states + 2)*4
+
+        setupChannel = self.board.createChannel(b'setupChannel', "int", n_outData)
+        setupChannel.connect(None, self.snip)
+        self.outChannels.append(setupChannel)
+
+        #create the data channels to return reward & choice at each epoch
+        dataChannel = self.board.createChannel(b'dataChannel', "int", (self.epochs+1))
+        dataChannel.connect(self.snip, None)
+        self.inChannels.append(dataChannel)
+
+        rewardChannel = self.board.createChannel(b'rewardChannel', "int", (self.epochs+1))
+        rewardChannel.connect(self.snip, None)
+        self.inChannels.append(rewardChannel)
+
+        spikeChannel = self.board.createChannel(b'spikeChannel', "int", (self.epochs*self.numArms))
+        spikeChannel.connect(self.snip, None)
+        self.inChannels.append(spikeChannel)
     #END
 
     def _create_logic(self):
@@ -66,18 +107,24 @@ class conditional_bandit:
         self.connection_maps['state_map'] = state_map
 
         condition_to_rwd = self.stubs['cond_stubs'].connect(rwd_ands,
-                                                    prototype=self.s_prototypes['halfconn'],
+                                                    prototype=self.s_prototypes['thirdconn'],
                                                     connectionMask=condition_map)
         state_to_rwd = self.stubs['state_stubs'].connect(rwd_ands,
-                                                    prototype=self.s_prototypes['halfconn'],
+                                                    prototype=self.s_prototypes['thirdconn'],
                                                     connectionMask=state_map)
+        reward_to_rwd = self.stubs['reward_stub'].connect(rwd_ands,
+                                                    prototype=self.s_prototypes['thirdconn'],
+                                                    connectionMask=np.ones((self.n_estimates,1)))
 
         condition_to_pun = self.stubs['cond_stubs'].connect(pun_ands,
-                                                    prototype=self.s_prototypes['halfconn'],
+                                                    prototype=self.s_prototypes['thirdconn'],
                                                     connectionMask=condition_map)
         state_to_pun = self.stubs['state_stubs'].connect(pun_ands,
-                                                    prototype=self.s_prototypes['halfconn'],
+                                                    prototype=self.s_prototypes['thirdconn'],
                                                     connectionMask=state_map)
+        punish_to_pun = self.stubs['punish_stub'].connect(pun_ands,
+                                                    prototype=self.s_prototypes['thirdconn'],
+                                                    connectionMask=np.ones((self.n_estimates,1)))
 
         self.connections['condition_to_rwd'] =  condition_to_rwd
         self.connections['state_to_rwd'] =  state_to_rwd
@@ -95,13 +142,13 @@ class conditional_bandit:
             #the reward tracker we're connecting to
             tracker = self.trackers[i]
             rwd_connection = rwd_ands.connect(tracker.stubs['estubs']],
-                                            prototype=self.s_prototypes['halfconn'],
-                                            connectionMask=and_mask[:,range])
+                                            prototype=self.s_prototypes['spkconn'],
+                                            connectionMask=and_mask[range,:])
             rwd_to_trackers.append(rwd_connection)
 
             pun_connection = rwd_ands.connect(tracker.stubs['istubs']],
-                                            prototype=self.s_prototypes['halfconn'],
-                                            connectionMask=and_mask[:,range])
+                                            prototype=self.s_prototypes['spkconn'],
+                                            connectionMask=and_mask[range,:])
             pun_to_trackers.append(pun_connection)
         #END
         self.connections['rwd_connection'] = rwd_connection
@@ -116,6 +163,16 @@ class conditional_bandit:
         self.c_prototypes = prototypes['c_prototypes']
         self.n_prototypes = prototypes['n_prototypes']
         self.s_prototypes = prototypes['s_prototypes']
+    #END
+
+    def _create_SNIPs(self):
+        assert hasattr(self, 'board'), "Must compile net to board before creating SNIP."
+        includeDir = os.getcwd()
+        self.snip = self.board.createSnip(Phase.EMBEDDED_MGMT,
+                                     includeDir=includeDir,
+                                     cFilePath = includeDir + "/snips/cond_management.c",
+                                     funcName = "run_cycle",
+                                     guardName = "check")
     #END
 
     def _create_trackers(self):
@@ -138,11 +195,14 @@ class conditional_bandit:
         #create input stubs for SNIP to interface with the network
         self.stubs = {}
 
-        rwd_stubs = self.net.createInputStubGroup(size=self.n_states)
-        pun_stubs = self.net.createInputStubGroup(size=self.n_states)
+        reward_stub = self.net.createInputStub()
+        punish_stub = self.net.createInputStub()
+        state_stubs = self.net.createInputStubGroup(size=self.n_states)
         cond_stubs = self.net.createInputStubGroup(size=self.n_conditions)
 
-        self.stubs['rwd_stubs'] = rwd_stubs
-        self.stubs['pun_stubs'] = pun_stubs
+        self.stubs['reward_stubs'] = reward_stub
+        self.stubs['punish_stub'] = punish_stub
+        self.stubs['state_stubs'] = state_stubs
         self.stubs['cond_stubs'] = cond_stubs
     #END
+#END

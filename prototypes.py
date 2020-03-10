@@ -89,6 +89,7 @@ def create_prototypes(self, vth=255, logicalCore=-1):
     s_prototypes['vthconn'] = nx.ConnectionPrototype(weight=-vth)
     s_prototypes['spkconn'] = nx.ConnectionPrototype(weight=vth)
     s_prototypes['halfconn'] = nx.ConnectionPrototype(weight = int(vth/2)+1)
+    s_prototypes['thirdconn'] = nx.ConnectionPrototype(weight = int(vth/3)+1)
     s_prototypes['single'] = nx.ConnectionPrototype(weight = 2)
 
 
