@@ -112,6 +112,14 @@ class tracker:
         self.compartments['exc_ands'] = exc_ands
         self.compartments['inh_ands'] = inh_ands
 
+        #create input stubs for R/P signals to interface with
+
+        estubs = self.net.createInputStubGroup(size=self.numArms)
+        istubs = self.net.createInputStubGroup(size=self.numArms)
+
+        self.stubs['estubs'] = estubs
+        self.stubs['istubs'] = istubs
+
         #create the mask that will map the reward/punishment stubs to the right q-trackers,
         # and q-trackers to output
         self.connection_maps['tracker_to_stub'] = np.tile(np.identity(self.n_states), self.n_per_state)
@@ -142,11 +150,23 @@ class tracker:
                                              prototype=s_prototypes['halfconn'],
                                              connectionMask=np.identity(self.totalNeurons))
 
+        # Exc stub to &EXC
+        estub_inh_conn = estubs.connect(inh_ands,
+                                        prototype=s_prototypes['halfconn'],
+                                        connectionMask=stub_to_tracker)
+
+        # Inh stub to &INH
+        istub_exc_conn = istubs.connect(exc_ands,
+                                        prototype=s_prototypes['halfconn'],
+                                        connectionMask=stub_to_tracker)
+
         self.connections['qinv_conns'] = qinv_conns
         self.connections['exc_conns'] = exc_conns
         self.connections['inh_conns'] = inh_conns
         self.connections['nspk_exc_conns'] = nspk_exc_conns
         self.connections['spk_inh_conns'] = spk_inh_conns
+        self.connections['estub_exc_conn'] = estub_inh_conn
+        self.connections['istub_inh_conn'] = istub_exc_conn
 
         #counter
         counters = self.net.createCompartmentGroup(size=self.n_states,

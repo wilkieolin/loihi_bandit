@@ -11,6 +11,7 @@ class conditional_bandit:
     def __init__(self, n_conditions, n_states, **kwargs):
         self.n_conditions = n_conditions
         self.n_states = n_states
+        self.n_estimates = n_states * n_conditions
         self.n_per_state = kwargs.get("n_per_state", 1)
         self.l_epoch = kwargs.get("l_epoch", 128)
         self.n_epochs = kwargs.get("n_epochs", 100)
@@ -24,6 +25,7 @@ class conditional_bandit:
             self.p_rewards = np.clip(p_rewards * 100, 0, 100).astype(np.int)
         else:
             self.p_rewards = np.random.randint(100, size=(self.n_conditions, self.n_states))
+        #END
 
         self.recordWeights = kwargs.get('recordWeights', False)
         self.recordSpikes = kwargs.get('recordSpikes', False)
@@ -36,6 +38,7 @@ class conditional_bandit:
         self._create_trackers()
         self._create_stubs()
         self._create_logic()
+    #END
 
     def _create_logic(self):
         #create the condition-filtering ands
@@ -54,7 +57,10 @@ class conditional_bandit:
 
         #wire them up to the stubs
         condition_map = np.tile(np.eye(self.n_conditions), self.n_states).transpose()
-        state_map = np.tile(np.eye(self.n_states), self.n_conditions).transpose()
+        state_map = np.zeros((self.n_estimates, self.n_conditions))
+        for i in range(self.n_conditions):
+            state_map[i*n_states:(i+1)*n_states,i] = 1
+        #END
 
         self.connection_maps['condition_map'] = condition_map
         self.connection_maps['state_map'] = state_map
@@ -78,12 +84,39 @@ class conditional_bandit:
         self.connections['condition_to_pun'] =  condition_to_pun
         self.connections['state_to_pun'] =  state_to_pun
 
+        #wire the condition-filtering ands to the reward/punishment ands on the Q-trackers for each condition
+        rwd_to_trackers = []
+        pun_to_trackers = []
+        and_mask = np.eye(self.n_conditions, self.n_conditions)
+        self.connection_maps['and_mask'] = and_mask
+
+        for i in range(self.n_conditions):
+            range = i*self.n_states:(i+1)*self.n_states
+            #the reward tracker we're connecting to
+            tracker = self.trackers[i]
+            rwd_connection = rwd_ands.connect(tracker.stubs['estubs']],
+                                            prototype=self.s_prototypes['halfconn'],
+                                            connectionMask=and_mask[:,range])
+            rwd_to_trackers.append(rwd_connection)
+
+            pun_connection = rwd_ands.connect(tracker.stubs['istubs']],
+                                            prototype=self.s_prototypes['halfconn'],
+                                            connectionMask=and_mask[:,range])
+            pun_to_trackers.append(pun_connection)
+        #END
+        self.connections['rwd_connection'] = rwd_connection
+        self.connections['pun_connection'] = pun_connection
+
+    #END
+
+
     def _create_prototypes(self):
         self.prototypes = prototypes.create_prototypes(self.vth)
 
         self.c_prototypes = prototypes['c_prototypes']
         self.n_prototypes = prototypes['n_prototypes']
         self.s_prototypes = prototypes['s_prototypes']
+    #END
 
     def _create_trackers(self):
         self.trackers = []
@@ -99,6 +132,7 @@ class conditional_bandit:
                 )
 
             trackers.append(state_tracker)
+    #END
 
     def _create_stubs(self):
         #create input stubs for SNIP to interface with the network
@@ -111,3 +145,4 @@ class conditional_bandit:
         self.stubs['rwd_stubs'] = rwd_stubs
         self.stubs['pun_stubs'] = pun_stubs
         self.stubs['cond_stubs'] = cond_stubs
+    #END
