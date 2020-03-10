@@ -8,7 +8,7 @@ from nxsdk.graph.monitor.probes import *
 from nxsdk.graph.processes.phase_enums import Phase
 
 class conditional_bandit:
-    def __init__(self, n_conditions, n_states, **kwargs):
+    def __init__(self, n_states, n_conditions, **kwargs):
         self.n_conditions = n_conditions
         self.n_states = n_states
         self.n_estimates = n_states * n_conditions
@@ -129,8 +129,8 @@ class conditional_bandit:
         state_map = np.tile(np.eye(self.n_states), self.n_conditions).transpose()
         condition_map = np.zeros((self.n_estimates, self.n_conditions))
         for i in range(self.n_conditions):
-            range = i*self.n_states:(i+1)*self.n_states
-            condition_map[range,i] = 1
+            inds = range(i*self.n_states, (i+1)*self.n_states)
+            condition_map[inds,i] = 1
         #END
 
         self.connection_maps['condition_map'] = condition_map
@@ -143,8 +143,7 @@ class conditional_bandit:
                                         prototype=self.s_prototypes['thirdconn'],
                                         connectionMask=state_map)
         reward_to_rwd = reward.connect(rwd_ands,
-                                        prototype=self.s_prototypes['thirdconn'],
-                                        connectionMask=np.ones((self.n_estimates,1)))
+                                        prototype=self.s_prototypes['thirdconn'])
 
         condition_to_pun = condition.connect(pun_ands,
                                                 prototype=self.s_prototypes['thirdconn'],
@@ -153,8 +152,7 @@ class conditional_bandit:
                                         prototype=self.s_prototypes['thirdconn'],
                                         connectionMask=state_map)
         punish_to_pun = punishment.connect(pun_ands,
-                                            prototype=self.s_prototypes['thirdconn'],
-                                            connectionMask=np.ones((self.n_estimates,1)))
+                                            prototype=self.s_prototypes['thirdconn'])
 
         self.connections['condition_to_rwd'] =  condition_to_rwd
         self.connections['state_to_rwd'] =  state_to_rwd
@@ -166,21 +164,21 @@ class conditional_bandit:
         #wire the condition-filtering ands to the reward/punishment ands on the Q-trackers for each condition
         rwd_to_trackers = []
         pun_to_trackers = []
-        and_mask = np.eye(self.n_conditions, self.n_conditions)
+        and_mask = np.eye(self.n_estimates, self.n_estimates)
         self.connection_maps['and_mask'] = and_mask
 
         for i in range(self.n_conditions):
-            range = i*self.n_states:(i+1)*self.n_states
+            inds = range(i*self.n_states, (i+1)*self.n_states)
             #the reward tracker we're connecting to
             tracker = self.trackers[i]
-            rwd_connection = rwd_ands.connect(tracker.stubs['estubs']],
+            rwd_connection = rwd_ands.connect(tracker.stubs['estubs'],
                                             prototype=self.s_prototypes['spkconn'],
-                                            connectionMask=and_mask[range,:])
+                                            connectionMask=and_mask[inds,:])
             rwd_to_trackers.append(rwd_connection)
 
-            pun_connection = rwd_ands.connect(tracker.stubs['istubs']],
+            pun_connection = rwd_ands.connect(tracker.stubs['istubs'],
                                             prototype=self.s_prototypes['spkconn'],
-                                            connectionMask=and_mask[range,:])
+                                            connectionMask=and_mask[inds,:])
             pun_to_trackers.append(pun_connection)
         #END
         self.connections['rwd_connection'] = rwd_connection
@@ -189,12 +187,12 @@ class conditional_bandit:
     #END
 
 
-    def _create_prototypes(self):
+    def _create_prototypes(self, vth):
         self.prototypes = prototypes.create_prototypes(self.vth)
 
-        self.c_prototypes = prototypes['c_prototypes']
-        self.n_prototypes = prototypes['n_prototypes']
-        self.s_prototypes = prototypes['s_prototypes']
+        self.c_prototypes = self.prototypes['c_prototypes']
+        self.n_prototypes = self.prototypes['n_prototypes']
+        self.s_prototypes = self.prototypes['s_prototypes']
     #END
 
     def _create_SNIPs(self):
@@ -214,13 +212,12 @@ class conditional_bandit:
 
             state_tracker = tracker.tracker(self.net,
                 self.prototypes,
-                n_states=self.n_states,
+                self.n_states,
                 n_per_state=self.n_per_state,
                 l_epoch=self.l_epoch,
-                epsilon=self.epsilon
-                )
+                epsilon=self.epsilon)
 
-            trackers.append(state_tracker)
+            self.trackers.append(state_tracker)
     #END
 
     def _create_stubs(self):

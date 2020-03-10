@@ -9,19 +9,19 @@ from nxsdk.graph.processes.phase_enums import Phase
 
 
 class tracker:
-    def __init__(self, network, prototypes, **kwargs):
+    def __init__(self, network, prototypes, n_states, **kwargs):
         self.n_states = n_states
-        self.n_per_state = n_per_state
-        self.totalNeurons = n_states * n_per_state
-        self.l_epoch = l_epoch
-        self.epsilon = int(100*epsilon)
+        self.n_per_state = kwargs.get("n_per_state", 1)
+        self.totalNeurons = self.n_states * self.n_per_state
+        self.l_epoch = kwargs.get("l_epoch", 128)
+        self.epsilon = int(100*kwargs.get("epsilon", 0.10))
 
         self.recordWeights = kwargs.get('recordWeights', False)
         self.recordSpikes = kwargs.get('recordSpikes', False)
 
         #initialize the network
         self.net = network
-        self.vth = 255
+        self.vth = prototypes['vth']
         if prototypes is not None:
             self.c_prototypes = prototypes['c_prototypes']
             self.n_prototypes = prototypes['n_prototypes']
@@ -65,6 +65,7 @@ class tracker:
         self.connections = {}
         self.connection_maps = {}
         self.neurons = {}
+        self.stubs = {}
 
         c_prototypes = self.c_prototypes
         n_prototypes = self.n_prototypes
@@ -114,17 +115,19 @@ class tracker:
 
         #create input stubs for R/P signals to interface with
 
-        estubs = self.net.createInputStubGroup(size=self.numArms)
-        istubs = self.net.createInputStubGroup(size=self.numArms)
+        estubs = self.net.createInputStubGroup(size=self.n_states)
+        istubs = self.net.createInputStubGroup(size=self.n_states)
 
         self.stubs['estubs'] = estubs
         self.stubs['istubs'] = istubs
 
         #create the mask that will map the reward/punishment stubs to the right q-trackers,
         # and q-trackers to output
-        self.connection_maps['tracker_to_stub'] = np.tile(np.identity(self.n_states), self.n_per_state)
-        self.connection_maps['stub_to_tracker'] = tracker_to_stub.transpose()
+        tracker_to_stub = np.tile(np.identity(self.n_states), self.n_per_state)
+        stub_to_tracker = tracker_to_stub.transpose()
 
+        self.connection_maps['tracker_to_stub'] = tracker_to_stub
+        self.connection_maps['stub_to_tracker'] = stub_to_tracker
         # -- Create Higher Connections --
         # Q to inverter
         qinv_conns = qneurons.soma.connect(invneurons.dendrites[0],

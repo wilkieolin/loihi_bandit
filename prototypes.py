@@ -1,7 +1,8 @@
 import nxsdk.api.n2a as nx
 
-def create_prototypes(self, vth=255, logicalCore=-1):
+def create_prototypes(self, vth=255, logicalCoreId=-1):
     prototypes = {}
+    prototypes['vth'] = vth
     #setup compartment prototypes
     c_prototypes = {}
     n_prototypes = {}
@@ -11,14 +12,14 @@ def create_prototypes(self, vth=255, logicalCore=-1):
     c_prototypes['somaProto'] = nx.CompartmentPrototype(vThMant=vth,
                                   compartmentCurrentDecay=4095,
                                   compartmentVoltageDecay=0,
-                                  logicalCore=logicalCore
+                                  logicalCoreId=logicalCoreId
                                   )
 
     c_prototypes['spkProto'] = nx.CompartmentPrototype(vThMant=vth,
                                      compartmentCurrentDecay=4095,
                                      compartmentVoltageDecay=0,
                                      thresholdBehavior=2,
-                                     logicalCore=logicalCore
+                                     logicalCoreId=logicalCoreId
                                      )
 
     c_prototypes['ememProto'] = nx.CompartmentPrototype(vThMant=vth,
@@ -26,7 +27,7 @@ def create_prototypes(self, vth=255, logicalCore=-1):
                                      compartmentCurrentDecay=4095,
                                      compartmentVoltageDecay=0,
                                      thresholdBehavior=3,
-                                     logicalCore=logicalCore
+                                     logicalCoreId=logicalCoreId
                                      )
 
     c_prototypes['somaProto'].addDendrite([c_prototypes['spkProto']],
@@ -43,7 +44,7 @@ def create_prototypes(self, vth=255, logicalCore=-1):
                                  compartmentVoltageDecay=0,
                                  thresholdBehavior=0,
                                  functionalState = 2,
-                                 logicalCore=logicalCore
+                                 logicalCoreId=logicalCoreId
                                  )
 
     c_prototypes['spkProto'] = nx.CompartmentPrototype(vThMant=vth-1,
@@ -53,14 +54,14 @@ def create_prototypes(self, vth=255, logicalCore=-1):
                                      compartmentCurrentDecay=4095,
                                      compartmentVoltageDecay=0,
                                      functionalState=2,
-                                     logicalCore=logicalCore
+                                     logicalCoreId=logicalCoreId
                                     )
 
     c_prototypes['receiverProto'] = nx.CompartmentPrototype(vThMant=vth-1,
                                      compartmentCurrentDecay=4095,
                                      compartmentVoltageDecay=0,
                                       thresholdBehavior=0,
-                                      logicalCore=logicalCore
+                                      logicalCoreId=logicalCoreId
                                       )
 
     c_prototypes['invProto'].addDendrite([c_prototypes['receiverProto']],
@@ -72,7 +73,7 @@ def create_prototypes(self, vth=255, logicalCore=-1):
     c_prototypes['andProto'] = nx.CompartmentPrototype(vThMant=vth,
                                 compartmentCurrentDecay=4095,
                                 compartmentVoltageDecay=4095,
-                                logicalCore=logicalCore
+                                logicalCoreId=logicalCoreId
                                 )
 
     #Counter (debug)
@@ -80,7 +81,7 @@ def create_prototypes(self, vth=255, logicalCore=-1):
     c_prototypes['counterProto'] = nx.CompartmentPrototype(vThMant=v_th_max,
                                 compartmentCurrentDecay=4095,
                                 compartmentVoltageDecay=0,
-                                logicalCore=logicalCore
+                                logicalCoreId=logicalCoreId
                                 )
 
     #Connections
