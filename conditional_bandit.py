@@ -68,63 +68,93 @@ class conditional_bandit:
         self.outChannels['setupChannel'] = setupChannel
 
         #create the data channels to return reward & choice at each epoch
-        dataChannel = self.board.createChannel(b'dataChannel', "int", (self.epochs+1))
+        dataChannel = self.board.createChannel(b'dataChannel', "int", (self.n_epochs+1))
         dataChannel.connect(self.snip, None)
         self.inChannels['dataChannel'] = dataChannel
 
-        rewardChannel = self.board.createChannel(b'rewardChannel', "int", (self.epochs+1))
+        rewardChannel = self.board.createChannel(b'rewardChannel', "int", (self.n_epochs+1))
         rewardChannel.connect(self.snip, None)
         self.inChannels['rewardChannel'] = rewardChannel
 
-        spikeChannel = self.board.createChannel(b'spikeChannel', "int", (self.epochs*self.n_estimates))
+        spikeChannel = self.board.createChannel(b'spikeChannel', "int", (self.n_epochs*self.n_estimates))
         spikeChannel.connect(self.snip, None)
         self.inChannels['spikeChannel'] = spikeChannel
     #END
 
     def _create_logic(self):
-        #create the condition-filtering ands
         self.compartments = {}
         self.connections = {}
         self.connection_maps = {}
 
-        andsPerCondition = self.n_states * self.n_conditions
-        rwd_ands = self.net.createCompartmentGroup(size=andsPerCondition,
+        #create the buffer neurons which spike corresponding to state/condition/reward/punishment
+        reward = self.net.createCompartment(prototype=self.c_prototypes['spkProto'])
+        punishment = self.net.createCompartment(prototype=self.c_prototypes['spkProto'])
+        state = self.net.createCompartmentGroup(size=self.n_states,
+                                                prototype=self.c_prototypes['spkProto'])
+        condition = self.net.createCompartmentGroup(size=self.n_conditions,
+                                                prototype=self.c_prototypes['spkProto'])
+
+        self.compartments['reward'] = reward
+        self.compartments['punishment'] = punishment
+        self.compartments['state'] = state
+        self.compartments['condition'] = condition
+
+        #wire them up to the stubs
+        rstub_to_reward = self.stubs['reward_stub'].connect(reward,
+                                                            prototype=self.s_prototypes['spkconn'])
+        pstub_to_punish = self.stubs['punish_stub'].connect(punishment,
+                                                            prototype=self.s_prototypes['spkconn'])
+        sstub_to_state = self.stubs['state_stubs'].connect(state,
+                                                            prototype=self.s_prototypes['spkconn'],
+                                                            connectionMask=np.eye(self.n_states))
+        cstub_to_cond = self.stubs['cond_stubs'].connect(condition,
+                                                            prototype=self.s_prototypes['spkconn'],
+                                                            connectionMask=np.eye(self.n_conditions))
+
+        self.connections['rstub_to_reward'] = rstub_to_reward
+        self.connections['pstub_to_punish'] = pstub_to_punish
+        self.connections['sstub_to_state'] = sstub_to_state
+        self.connections['cstub_to_cond'] = cstub_to_cond
+
+        #create the condition-filtering ands
+        rwd_ands = self.net.createCompartmentGroup(size=self.n_estimates,
                                                     prototype=self.c_prototypes['andProto'])
-        pun_ands = self.net.createCompartmentGroup(size=andsPerCondition,
+        pun_ands = self.net.createCompartmentGroup(size=self.n_estimates,
                                                     prototype=self.c_prototypes['andProto'])
 
         self.compartments['rwd_ands'] = rwd_ands
         self.compartments['pun_ands'] = pun_ands
 
-        #wire them up to the stubs
-        condition_map = np.tile(np.eye(self.n_conditions), self.n_states).transpose()
-        state_map = np.zeros((self.n_estimates, self.n_conditions))
+        #wire them up to the reward/punishment/condition
+        state_map = np.tile(np.eye(self.n_states), self.n_conditions).transpose()
+        condition_map = np.zeros((self.n_estimates, self.n_conditions))
         for i in range(self.n_conditions):
-            state_map[i*n_states:(i+1)*n_states,i] = 1
+            range = i*self.n_states:(i+1)*self.n_states
+            condition_map[range,i] = 1
         #END
 
         self.connection_maps['condition_map'] = condition_map
         self.connection_maps['state_map'] = state_map
 
-        condition_to_rwd = self.stubs['cond_stubs'].connect(rwd_ands,
-                                                    prototype=self.s_prototypes['thirdconn'],
-                                                    connectionMask=condition_map)
-        state_to_rwd = self.stubs['state_stubs'].connect(rwd_ands,
-                                                    prototype=self.s_prototypes['thirdconn'],
-                                                    connectionMask=state_map)
-        reward_to_rwd = self.stubs['reward_stub'].connect(rwd_ands,
-                                                    prototype=self.s_prototypes['thirdconn'],
-                                                    connectionMask=np.ones((self.n_estimates,1)))
+        condition_to_rwd = condition.connect(rwd_ands,
+                                                prototype=self.s_prototypes['thirdconn'],
+                                                connectionMask=condition_map)
+        state_to_rwd = state.connect(rwd_ands,
+                                        prototype=self.s_prototypes['thirdconn'],
+                                        connectionMask=state_map)
+        reward_to_rwd = reward.connect(rwd_ands,
+                                        prototype=self.s_prototypes['thirdconn'],
+                                        connectionMask=np.ones((self.n_estimates,1)))
 
-        condition_to_pun = self.stubs['cond_stubs'].connect(pun_ands,
-                                                    prototype=self.s_prototypes['thirdconn'],
-                                                    connectionMask=condition_map)
-        state_to_pun = self.stubs['state_stubs'].connect(pun_ands,
-                                                    prototype=self.s_prototypes['thirdconn'],
-                                                    connectionMask=state_map)
-        punish_to_pun = self.stubs['punish_stub'].connect(pun_ands,
-                                                    prototype=self.s_prototypes['thirdconn'],
-                                                    connectionMask=np.ones((self.n_estimates,1)))
+        condition_to_pun = condition.connect(pun_ands,
+                                                prototype=self.s_prototypes['thirdconn'],
+                                                connectionMask=condition_map)
+        state_to_pun = state.connect(pun_ands,
+                                        prototype=self.s_prototypes['thirdconn'],
+                                        connectionMask=state_map)
+        punish_to_pun = punishment.connect(pun_ands,
+                                            prototype=self.s_prototypes['thirdconn'],
+                                            connectionMask=np.ones((self.n_estimates,1)))
 
         self.connections['condition_to_rwd'] =  condition_to_rwd
         self.connections['state_to_rwd'] =  state_to_rwd
@@ -202,7 +232,7 @@ class conditional_bandit:
         state_stubs = self.net.createInputStubGroup(size=self.n_states)
         cond_stubs = self.net.createInputStubGroup(size=self.n_conditions)
 
-        self.stubs['reward_stubs'] = reward_stub
+        self.stubs['reward_stub'] = reward_stub
         self.stubs['punish_stub'] = punish_stub
         self.stubs['state_stubs'] = state_stubs
         self.stubs['cond_stubs'] = cond_stubs
@@ -221,15 +251,27 @@ class conditional_bandit:
     #END
 
     def get_stub_locations(self):
-        locs = []
+        locs = {}
 
-        eAxonId = self.connections['reward_to_rwd'].inputAxon.nodeId
-        eAxon = self.net.resourceMap.inputAxon(eAxonId)[0]
+        rewardAxonId = self.connections['rstub_to_reward'].inputAxon.nodeId
+        locs['reward_axon'] = self.net.resourceMap.inputAxon(rewardAxonId)[0]
 
-        iAxonId = self.connections['punish_to_pun'].inputAxon.nodeId
-        iAxon = self.net.resourceMap.inputAxon(iAxonId)[0]
+        punishAxonId = self.connections['pstub_to_punish'].inputAxon.nodeId
+        locs['punish_axon'] = self.net.resourceMap.inputAxon(punishAxonId)[0]
 
-            locs.append((eAxon, iAxon))
+        state_axons = []
+        for i in range(self.n_states):
+            stateAxonId = self.connections['sstub_to_state'][i].inputAxon.nodeId
+            state_axons.append(stateAxonId)
+        #END
+        locs['state_axons'] = state_axons
+
+        condition_axons = []
+        for i in range(self.n_conditions):
+            conditionAxonId = self.connections['cstub_to_cond'][i].inputAxon.nodeId
+            condition_axons.append(conditionAxonId)
+        #END
+        locs['condition_axons'] = condition_axons
 
         return locs
     #END
@@ -240,14 +282,32 @@ class conditional_bandit:
     #END
 
     def run(self, epochs):
-        #TODO finish
-        pass
+        assert epochs in range(1, self.n_epochs + 1), "Must run between 1 and the set number of epochs."
+
+        #only reserve hardware once we actually need to run the network
+        if not self.started:
+            self.init()
+            self.started = True
+
+        dataChannel = self.inChannels['dataChannel']
+        rewardChannel = self.inChannels['rewardChannel']
+        spikeChannel = self.inChannels['spikeChannel']
+
+        self.board.run(self.l_epoch * epochs)
+        self.choices = np.array(dataChannel.read(epochs))
+        self.rewards = np.array(rewardChannel.read(epochs))
+        singlewgt = self.s_prototypes['single'].weight
+        self.spikes = np.array(spikeChannel.read(epochs*self.n_estimates), dtype='int').reshape(epochs, self.n_estimates)/(singlewgt*2**6)
+
+        return (self.choices, self.rewards, self.spikes)
+
+
     #END
 
     def _send_config(self):
         #TODO FINISH
         #probeIDMap = self.get_probeid_map()
-        bufferLocations = self.get_stub_locations()
+        stubLocations = self.get_stub_locations()
         counterLocations = self.get_counter_locations()
 
         #send the epoch length
@@ -263,14 +323,22 @@ class conditional_bandit:
         for i in range(self.n_estimates):
             setupChannel.write(1, [self.probabilities[i]])
 
-        #send stub locations
-        for i in range(self.numArms):
-            bufferLoc = bufferLocations[i]
-            setupChannel.write(4, bufferLoc[0])
-            setupChannel.write(4, bufferLoc[1])
+        #send reward/punishment stub locations
+        setupChannel.write(4, stubLocations['reward_axon'])
+        setupChannel.write(4, stubLocations['punish_axon'])
+
+        #send state stub locations
+        for i in range(self.n_states):
+            stateAxon = stubLocations['state_axons'][i]
+            setupChannel.write(4, stateAxon)
+
+        #send condition stub locations
+        for i in range(self.n_conditions):
+            conditionAxon = stubLocations['condition_axons'][i]
+            setupChannel.write(4, conditionAxon)
 
         #send the counter locations
-        for i in range(self.numArms):
+        for i in range(self.n_estimates):
             setupChannel.write(4, counterLocations[i][:4])
     #END
 
