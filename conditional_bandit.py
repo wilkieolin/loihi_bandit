@@ -55,8 +55,8 @@ class conditional_bandit:
     def _create_channels(self):
         assert hasattr(self, 'board'), "Must compile net to board before creating channels."
         assert hasattr(self, 'snip'), "Must add SNIP before creating channels."
-        self.outChannels = []
-        self.inChannels = []
+        self.outChannels = {}
+        self.inChannels = {}
 
         # need to send the epoch length, seed,
         # and for each state: probability (1) and counter compartment for each state
@@ -65,20 +65,20 @@ class conditional_bandit:
 
         setupChannel = self.board.createChannel(b'setupChannel', "int", n_outData)
         setupChannel.connect(None, self.snip)
-        self.outChannels.append(setupChannel)
+        self.outChannels['setupChannel'] = setupChannel
 
         #create the data channels to return reward & choice at each epoch
         dataChannel = self.board.createChannel(b'dataChannel', "int", (self.epochs+1))
         dataChannel.connect(self.snip, None)
-        self.inChannels.append(dataChannel)
+        self.inChannels['dataChannel'] = dataChannel
 
         rewardChannel = self.board.createChannel(b'rewardChannel', "int", (self.epochs+1))
         rewardChannel.connect(self.snip, None)
-        self.inChannels.append(rewardChannel)
+        self.inChannels['rewardChannel'] = rewardChannel
 
-        spikeChannel = self.board.createChannel(b'spikeChannel', "int", (self.epochs*self.numArms))
+        spikeChannel = self.board.createChannel(b'spikeChannel', "int", (self.epochs*self.n_estimates))
         spikeChannel.connect(self.snip, None)
-        self.inChannels.append(spikeChannel)
+        self.inChannels['spikeChannel'] = spikeChannel
     #END
 
     def _create_logic(self):
@@ -128,8 +128,10 @@ class conditional_bandit:
 
         self.connections['condition_to_rwd'] =  condition_to_rwd
         self.connections['state_to_rwd'] =  state_to_rwd
+        self.connections['reward_to_rwd'] = reward_to_rwd
         self.connections['condition_to_pun'] =  condition_to_pun
         self.connections['state_to_pun'] =  state_to_pun
+        self.connections['punish_to_pun'] = punish_to_pun
 
         #wire the condition-filtering ands to the reward/punishment ands on the Q-trackers for each condition
         rwd_to_trackers = []
@@ -204,5 +206,105 @@ class conditional_bandit:
         self.stubs['punish_stub'] = punish_stub
         self.stubs['state_stubs'] = state_stubs
         self.stubs['cond_stubs'] = cond_stubs
+    #END
+
+    def get_counter_locations(self):
+        locs = []
+        for i in range(self.n_conditions):
+            for j in range(self.n_states):
+                compartmentId = self.trackers[i].compartments['counters'][j].nodeId
+                compartmentLoc = self.net.resourceMap.compartmentMap[compartmentId]
+
+                locs.append(compartmentLoc)
+
+        return locs
+    #END
+
+    def get_stub_locations(self):
+        locs = []
+
+        eAxonId = self.connections['reward_to_rwd'].inputAxon.nodeId
+        eAxon = self.net.resourceMap.inputAxon(eAxonId)[0]
+
+        iAxonId = self.connections['punish_to_pun'].inputAxon.nodeId
+        iAxon = self.net.resourceMap.inputAxon(iAxonId)[0]
+
+            locs.append((eAxon, iAxon))
+
+        return locs
+    #END
+
+    def initialize(self):
+        self._start()
+        self._send_config()
+    #END
+
+    def run(self, epochs):
+        #TODO finish
+        pass
+    #END
+
+    def _send_config(self):
+        #TODO FINISH
+        #probeIDMap = self.get_probeid_map()
+        bufferLocations = self.get_stub_locations()
+        counterLocations = self.get_counter_locations()
+
+        #send the epoch length
+        setupChannel = self.outChannels['setupChannel']
+        setupChannel.write(1, [self.votingEpoch])
+        #write the epsilon value
+        setupChannel.write(1, [self.epsilon])
+
+        #send the random seed
+        setupChannel.write(1, [self.seed])
+
+        #send arm probabilities
+        for i in range(self.n_estimates):
+            setupChannel.write(1, [self.probabilities[i]])
+
+        #send stub locations
+        for i in range(self.numArms):
+            bufferLoc = bufferLocations[i]
+            setupChannel.write(4, bufferLoc[0])
+            setupChannel.write(4, bufferLoc[1])
+
+        #send the counter locations
+        for i in range(self.numArms):
+            setupChannel.write(4, counterLocations[i][:4])
+    #END
+
+    def _set_params_file(self):
+        filename = os.getcwd()+'/parameters.h'
+
+        with open(filename) as f:
+            data = f.readlines()
+
+        f = open(filename, "w")
+        for line in data:
+
+            #update numarms
+            m = re.match(r'^#define\s+N_STATES', line)
+            if m is not None:
+                line = '#define N_STATES ' + str(self.n_states) + '\n'
+
+            #update neuronsperarm
+            m = re.match(r'^#define\s+N_CONDITIONS', line)
+            if m is not None:
+                line = '#define N_CONDITIONS ' + str(self.n_conditions) + '\n'
+
+            f.write(line)
+
+        f.close()
+    #END
+
+    def _start(self):
+        assert hasattr(self, 'board') and hasattr(self, 'snip'), "Must have compiled board and snips before starting."
+        self._set_params_file()
+        self.board.startDriver()
+    #END
+
+    def stop(self):
+        self.board.disconnect()
     #END
 #END

@@ -190,7 +190,7 @@ void run_cycle(runState *s) {
   get_counter_voltages(condition);
   reset_counter_voltages();
 
-  for (int i = 0; i < N_STATES; i++) {
+  for (int i = 0; i < N_ESTIMATES; i++) {
     writeChannel(spikeChannelID, &counterVoltages[i], 1);
   }
 
