@@ -15,7 +15,8 @@ class conditional_bandit:
         self.n_per_state = kwargs.get("n_per_state", 1)
         self.l_epoch = kwargs.get("l_epoch", 128)
         self.n_epochs = kwargs.get("n_epochs", 100)
-        self.epsilon = kwargs.get("epsilon", 0.1)
+        self.epsilon = int(kwargs.get("epsilon", 0.1)*100)
+        self.seed = kwargs.get("seed", 341257896)
 
         p_rewards = kwargs.get("p_rewards")
         if p_rewards is not None:
@@ -200,7 +201,7 @@ class conditional_bandit:
         includeDir = os.getcwd()
         self.snip = self.board.createSnip(Phase.EMBEDDED_MGMT,
                                      includeDir=includeDir,
-                                     cFilePath = includeDir + "/snips/cond_management.c",
+                                     cFilePath = includeDir + "/cond_management.c",
                                      funcName = "run_cycle",
                                      guardName = "check")
     #END
@@ -259,14 +260,14 @@ class conditional_bandit:
         state_axons = []
         for i in range(self.n_states):
             stateAxonId = self.connections['sstub_to_state'][i].inputAxon.nodeId
-            state_axons.append(stateAxonId)
+            state_axons.append(self.net.resourceMap.inputAxon(stateAxonId)[0])
         #END
         locs['state_axons'] = state_axons
 
         condition_axons = []
         for i in range(self.n_conditions):
             conditionAxonId = self.connections['cstub_to_cond'][i].inputAxon.nodeId
-            condition_axons.append(conditionAxonId)
+            condition_axons.append(self.net.resourceMap.inputAxon(conditionAxonId)[0])
         #END
         locs['condition_axons'] = condition_axons
 
@@ -283,7 +284,7 @@ class conditional_bandit:
 
         #only reserve hardware once we actually need to run the network
         if not self.started:
-            self.init()
+            self.initialize()
             self.started = True
 
         dataChannel = self.inChannels['dataChannel']
@@ -291,7 +292,7 @@ class conditional_bandit:
         spikeChannel = self.inChannels['spikeChannel']
 
         self.board.run(self.l_epoch * epochs)
-        data = np.array(dataChannel.read(epochs*2).reshape(epochs,2))
+        data = np.array(dataChannel.read(epochs*2)).reshape(epochs,2)
         self.choices = data[:,0]
         self.conditions = data[:,1]
         self.rewards = np.array(rewardChannel.read(epochs))
@@ -302,14 +303,13 @@ class conditional_bandit:
     #END
 
     def _send_config(self):
-        #TODO FINISH
         #probeIDMap = self.get_probeid_map()
         stubLocations = self.get_stub_locations()
         counterLocations = self.get_counter_locations()
 
         #send the epoch length
         setupChannel = self.outChannels['setupChannel']
-        setupChannel.write(1, [self.votingEpoch])
+        setupChannel.write(1, [self.l_epoch])
         #write the epsilon value
         setupChannel.write(1, [self.epsilon])
 
@@ -318,7 +318,7 @@ class conditional_bandit:
 
         #send arm probabilities
         for i in range(self.n_estimates):
-            setupChannel.write(1, [self.probabilities[i]])
+            setupChannel.write(1, [self.p_rewards.ravel()[i]])
 
         #send reward/punishment stub locations
         setupChannel.write(4, stubLocations['reward_axon'])
@@ -340,7 +340,7 @@ class conditional_bandit:
     #END
 
     def _set_params_file(self):
-        filename = os.getcwd()+'/parameters.h'
+        filename = os.getcwd()+'/cond_parameters.h'
 
         with open(filename) as f:
             data = f.readlines()

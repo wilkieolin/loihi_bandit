@@ -88,24 +88,26 @@ int get_reward(int p) {
   }
 }
 
-void get_counter_voltages(int condition) {
-  CoreId core;
+void get_counter_voltages() {
   int cxId = 0;
+
+  CoreId core;
   NeuronCore *nc;
   CxState cxs;
 
+
   //read out the counter soma voltages
   //printf("Voltages: ");
-  for (int i = 0; i < N_STATES; i++) {
-    //get the core the counter is on
-    core = nx_nth_coreid(counterCompartment[state][i][2]);
-    nc = NEURON_PTR(core);
-    //get the compartment the voltage is in
-    cxId = counterCompartment[state][i][3];
-    cxs = nc->cx_state[cxId];
-    counterVoltages[i] = cxs.V;
-    nc->cx_state[cxId].V = 0;
-    //printf("%d ", counterVoltages[i]);
+  for (int i = 0; i < N_CONDITIONS; i++) {
+    for (int j = 0; j < N_STATES; j++) {
+      //get the core the counter is on
+      core = nx_nth_coreid(counterCompartment[i][j][2]);
+      nc = NEURON_PTR(core);
+      //get the compartment the voltage is in
+      cxId = counterCompartment[i][j][3];
+      cxs = nc->cx_state[cxId];
+      counterVoltages[i][j] = cxs.V;
+    }
   }
   //printf("\n");
 
@@ -116,7 +118,6 @@ void reset_counter_voltages() {
   CoreId core;
   int cxId = 0;
   NeuronCore *nc;
-  CxState cxs;
 
   for (int i = 0; i < N_CONDITIONS; i++) {
     for (int j = 0; j < N_STATES; j++) {
@@ -125,7 +126,6 @@ void reset_counter_voltages() {
       nc = NEURON_PTR(core);
       //get the compartment the voltage is in
       cxId = counterCompartment[i][j][3];
-      cxs = nc->cx_state[cxId];
       //reset it to zero
       nc->cx_state[cxId].V = 0;
     }
@@ -134,7 +134,7 @@ void reset_counter_voltages() {
   return;
 }
 
-int get_highest() {
+int get_highest(int condition) {
   // choose the arm with the highest count, randomly breaking ties
 
   int highest = -1;
@@ -145,15 +145,15 @@ int get_highest() {
 
   //find the max
   for (int i = 0; i < N_STATES; i++) {
-    if (counterVoltages[i] > highest) {
-      highest = counterVoltages[i];
+    if (counterVoltages[condition][i] > highest) {
+      highest = counterVoltages[condition][i];
       i_highest = i;
     }
   }
 
   //find any values which are tied to it
   for (int i = 0; i < N_STATES; i++) {
-    if (counterVoltages[i] == highest) {
+    if (counterVoltages[condition][i] == highest) {
       ties++;
       tie_locations[i] = 1;
     } else {
@@ -192,8 +192,8 @@ void run_cycle(runState *s) {
   //select the condition we're going to be sampling under
   int condition = rand() % N_CONDITIONS;
 
-  //get the firing rates for the neurons representing our condition
-  get_counter_voltages(condition);
+  //get the firing rates for all estimate neurons
+  get_counter_voltages();
   reset_counter_voltages();
 
   for (int i = 0; i < N_ESTIMATES; i++) {
@@ -206,7 +206,7 @@ void run_cycle(runState *s) {
     i_highest = rand() % N_STATES;
   } else {
     //choose the best arm with p = (1-eps.)
-    i_highest = get_highest();
+    i_highest = get_highest(condition);
   }
 
   //return the arm which we chose to the host and the condition
@@ -218,14 +218,14 @@ void run_cycle(runState *s) {
 
 
   //identify state
-  nx_send_discrete_spike(s->time_step, nx_nth_coreid(rewardCompartment[i_highest][2]), rewardCompartment[i_highest][3]);
+  nx_send_discrete_spike(s->time_step, nx_nth_coreid(stateCompartments[i_highest][2]), stateCompartments[i_highest][3]);
   //identify condition
-  nx_send_discrete_spike(s->time_step, nx_nth_coreid(rewardCompartment[i_highest][2]), rewardCompartment[i_highest][3]);
+  nx_send_discrete_spike(s->time_step, nx_nth_coreid(conditionCompartments[condition][2]), conditionCompartments[condition][3]);
   //identify reward/punishment
   if (reward) {
-    nx_send_discrete_spike(s->time_step, nx_nth_coreid(rewardCompartment[i_highest][2]), rewardCompartment[i_highest][3]);
+    nx_send_discrete_spike(s->time_step, nx_nth_coreid(rewardCompartment[2]), rewardCompartment[3]);
   } else {
-    nx_send_discrete_spike(s->time_step, nx_nth_coreid(punishCompartment[i_highest][2]), punishCompartment[i_highest][3]);
+    nx_send_discrete_spike(s->time_step, nx_nth_coreid(punishCompartment[2]), punishCompartment[3]);
   }
 
   cycle++;
