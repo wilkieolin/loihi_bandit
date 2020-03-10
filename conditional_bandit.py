@@ -68,7 +68,7 @@ class conditional_bandit:
         self.outChannels['setupChannel'] = setupChannel
 
         #create the data channels to return reward & choice at each epoch
-        dataChannel = self.board.createChannel(b'dataChannel', "int", (self.n_epochs+1))
+        dataChannel = self.board.createChannel(b'dataChannel', "int", (self.n_epochs+1)*2)
         dataChannel.connect(self.snip, None)
         self.inChannels['dataChannel'] = dataChannel
 
@@ -294,14 +294,14 @@ class conditional_bandit:
         spikeChannel = self.inChannels['spikeChannel']
 
         self.board.run(self.l_epoch * epochs)
-        self.choices = np.array(dataChannel.read(epochs))
+        data = np.array(dataChannel.read(epochs*2).reshape(epochs,2))
+        self.choices = data[:,0]
+        self.conditions = data[:,1]
         self.rewards = np.array(rewardChannel.read(epochs))
         singlewgt = self.s_prototypes['single'].weight
         self.spikes = np.array(spikeChannel.read(epochs*self.n_estimates), dtype='int').reshape(epochs, self.n_estimates)/(singlewgt*2**6)
 
         return (self.choices, self.rewards, self.spikes)
-
-
     #END
 
     def _send_config(self):

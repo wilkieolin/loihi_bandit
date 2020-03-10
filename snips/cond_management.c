@@ -16,8 +16,8 @@ int spikeChannelID = -1;
 
 int rewardCompartment[4];
 int punishCompartment[4];
-int stateCompartments[N_STATES];
-int conditionCompartments[N_CONDITIONS];
+int stateCompartments[N_STATES][4];
+int conditionCompartments[N_CONDITIONS][4];
 int counterCompartment[N_CONDITIONS][N_STATES][4];
 
 int voting_epoch = 128;
@@ -51,13 +51,19 @@ int check(runState *s) {
 
     printf("Got variables\n");
     //read the location of the stub group so we can send events to the reward/punishment stubs
+    readChannel(readChannelID, &rewardCompartment[0], 4);
+    readChannel(readChannelID, &punishCompartment[0], 4);
+
+    //read the location of the state stubs
     for (int i = 0; i < N_STATES; i++) {
-      readChannel(readChannelID, &rewardCompartment[i][0], 4);
-      readChannel(readChannelID, &punishCompartment[i][0], 4);
-      //DEBUG
-      //printf("%d %d %d %d\n", rewardCompartment[i][0], rewardCompartment[i][1], rewardCompartment[i][2], rewardCompartment[i][3]);
+      readChannel(readChannelID, &stateCompartments[i][0], 4);
     }
-    printf("Got R/P compartments\n");
+
+    //read the location of the condition stubs
+    for (int i = 0; i < N_CONDITIONS; i++) {
+      readChannel(readChannelID, &conditionCompartments[i][0], 4);
+    }
+    printf("Got R/P/State/Condition compartments\n");
 
     //read the location of the counter neurons
     for (int i = 0; i < N_ESTIMATES; i++) {
@@ -210,6 +216,12 @@ void run_cycle(runState *s) {
   int reward = get_reward(probabilities[condition][i_highest]);
   writeChannel(rewardChannelID, &reward, 1);
 
+
+  //identify state
+  nx_send_discrete_spike(s->time_step, nx_nth_coreid(rewardCompartment[i_highest][2]), rewardCompartment[i_highest][3]);
+  //identify condition
+  nx_send_discrete_spike(s->time_step, nx_nth_coreid(rewardCompartment[i_highest][2]), rewardCompartment[i_highest][3]);
+  //identify reward/punishment
   if (reward) {
     nx_send_discrete_spike(s->time_step, nx_nth_coreid(rewardCompartment[i_highest][2]), rewardCompartment[i_highest][3]);
   } else {
