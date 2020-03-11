@@ -40,6 +40,7 @@ class conditional_bandit:
         self._create_trackers()
         self._create_stubs()
         self._create_logic()
+        self._create_probes()
 
         #compile and link it to Loihi
         self._compile()
@@ -88,23 +89,27 @@ class conditional_bandit:
         self.connection_maps = {}
 
         #create the buffer neurons which spike corresponding to state/condition/reward/punishment
-        reward = self.net.createCompartment(prototype=self.c_prototypes['spkProto'])
-        punishment = self.net.createCompartment(prototype=self.c_prototypes['spkProto'])
+        reward = self.net.createCompartmentGroup(size=1,
+                                                prototype=self.c_prototypes['bufferProto'])
+        punishment = self.net.createCompartmentGroup(size=1,
+                                                prototype=self.c_prototypes['bufferProto'])
         state = self.net.createCompartmentGroup(size=self.n_states,
-                                                prototype=self.c_prototypes['spkProto'])
+                                                prototype=self.c_prototypes['bufferProto'])
         condition = self.net.createCompartmentGroup(size=self.n_conditions,
-                                                prototype=self.c_prototypes['spkProto'])
+                                                prototype=self.c_prototypes['bufferProto'])
 
         self.compartments['reward'] = reward
         self.compartments['punishment'] = punishment
         self.compartments['state'] = state
         self.compartments['condition'] = condition
 
-        #wire them up to the stubs
+        #wire the stubs up to them
         rstub_to_reward = self.stubs['reward_stub'].connect(reward,
-                                                            prototype=self.s_prototypes['spkconn'])
+                                                            prototype=self.s_prototypes['spkconn'],
+                                                            connectionMask=np.ones((1,1)))
         pstub_to_punish = self.stubs['punish_stub'].connect(punishment,
-                                                            prototype=self.s_prototypes['spkconn'])
+                                                            prototype=self.s_prototypes['spkconn'],
+                                                            connectionMask=np.ones((1,1)))
         sstub_to_state = self.stubs['state_stubs'].connect(state,
                                                             prototype=self.s_prototypes['spkconn'],
                                                             connectionMask=np.eye(self.n_states))
@@ -144,7 +149,8 @@ class conditional_bandit:
                                         prototype=self.s_prototypes['thirdconn'],
                                         connectionMask=state_map)
         reward_to_rwd = reward.connect(rwd_ands,
-                                        prototype=self.s_prototypes['thirdconn'])
+                                        prototype=self.s_prototypes['thirdconn'],
+                                        connectionMask=np.ones((self.n_estimates,1)))
 
         condition_to_pun = condition.connect(pun_ands,
                                                 prototype=self.s_prototypes['thirdconn'],
@@ -153,7 +159,8 @@ class conditional_bandit:
                                         prototype=self.s_prototypes['thirdconn'],
                                         connectionMask=state_map)
         punish_to_pun = punishment.connect(pun_ands,
-                                            prototype=self.s_prototypes['thirdconn'])
+                                            prototype=self.s_prototypes['thirdconn'],
+                                            connectionMask=np.ones((self.n_estimates,1)))
 
         self.connections['condition_to_rwd'] =  condition_to_rwd
         self.connections['state_to_rwd'] =  state_to_rwd
@@ -187,6 +194,20 @@ class conditional_bandit:
 
     #END
 
+    def _create_probes(self):
+        # -- Create Probes --
+        self.probes = {}
+
+        if self.recordSpikes:
+            self.probes['rwd_ands'] = self.compartments['rwd_ands'].probe(nx.ProbeParameter.SPIKE)
+            self.probes['pun_ands'] = self.compartments['pun_ands'].probe(nx.ProbeParameter.SPIKE)
+
+            self.probes['rwd'] = self.compartments['reward'].probe(nx.ProbeParameter.SPIKE)
+            self.probes['pun'] = self.compartments['punishment'].probe(nx.ProbeParameter.SPIKE)
+            self.probes['state'] = self.compartments['state'].probe(nx.ProbeParameter.SPIKE)
+            self.probes['condition'] = self.compartments['condition'].probe(nx.ProbeParameter.SPIKE)
+
+    #END
 
     def _create_prototypes(self, vth):
         self.prototypes = prototypes.create_prototypes(self.vth)
@@ -227,8 +248,8 @@ class conditional_bandit:
         #create input stubs for SNIP to interface with the network
         self.stubs = {}
 
-        reward_stub = self.net.createInputStub()
-        punish_stub = self.net.createInputStub()
+        reward_stub = self.net.createInputStubGroup(size=1)
+        punish_stub = self.net.createInputStubGroup(size=1)
         state_stubs = self.net.createInputStubGroup(size=self.n_states)
         cond_stubs = self.net.createInputStubGroup(size=self.n_conditions)
 
@@ -253,10 +274,10 @@ class conditional_bandit:
     def get_stub_locations(self):
         locs = {}
 
-        rewardAxonId = self.connections['rstub_to_reward'].inputAxon.nodeId
+        rewardAxonId = self.connections['rstub_to_reward'][0].inputAxon.nodeId
         locs['reward_axon'] = self.net.resourceMap.inputAxon(rewardAxonId)[0]
 
-        punishAxonId = self.connections['pstub_to_punish'].inputAxon.nodeId
+        punishAxonId = self.connections['pstub_to_punish'][0].inputAxon.nodeId
         locs['punish_axon'] = self.net.resourceMap.inputAxon(punishAxonId)[0]
 
         state_axons = []

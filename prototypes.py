@@ -69,6 +69,12 @@ def create_prototypes(self, vth=255, logicalCoreId=-1):
 
     n_prototypes['invNeuron'] = nx.NeuronPrototype(c_prototypes['invProto'])
 
+    c_prototypes['bufferProto'] = nx.CompartmentPrototype(vThMant=1,
+                                     compartmentCurrentDecay=4095,
+                                     compartmentVoltageDecay=4095,
+                                     logicalCoreId=logicalCoreId
+                                    )
+
     #AND
     c_prototypes['andProto'] = nx.CompartmentPrototype(vThMant=vth,
                                 compartmentCurrentDecay=4095,
