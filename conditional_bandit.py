@@ -179,12 +179,13 @@ class conditional_bandit:
             inds = range(i*self.n_states, (i+1)*self.n_states)
             #the reward tracker we're connecting to
             tracker = self.trackers[i]
-            rwd_connection = rwd_ands.connect(tracker.stubs['estubs'],
+            #TODO - FLIP BACK TO REGULAR FOR NON-OPTIMISTIC TRACKER
+            rwd_connection = rwd_ands.connect(tracker.stubs['istubs'],
                                             prototype=self.s_prototypes['spkconn'],
                                             connectionMask=and_mask[inds,:])
             rwd_to_trackers.append(rwd_connection)
 
-            pun_connection = rwd_ands.connect(tracker.stubs['istubs'],
+            pun_connection = rwd_ands.connect(tracker.stubs['estubs'],
                                             prototype=self.s_prototypes['spkconn'],
                                             connectionMask=and_mask[inds,:])
             pun_to_trackers.append(pun_connection)

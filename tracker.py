@@ -155,12 +155,12 @@ class tracker:
                                              connectionMask=np.identity(self.totalNeurons))
 
         # Exc stub to &EXC
-        estub_inh_conn = estubs.connect(inh_ands,
+        estub_inh_conn = estubs.connect(exc_ands,
                                         prototype=s_prototypes['halfconn'],
                                         connectionMask=stub_to_tracker)
 
         # Inh stub to &INH
-        istub_exc_conn = istubs.connect(exc_ands,
+        istub_exc_conn = istubs.connect(inh_ands,
                                         prototype=s_prototypes['halfconn'],
                                         connectionMask=stub_to_tracker)
 
@@ -176,7 +176,7 @@ class tracker:
         counters = self.net.createCompartmentGroup(size=self.n_states,
                                          prototype=self.c_prototypes['counterProto'])
 
-        self.connections['soma_counter'] = invneurons.soma.connect(counters,
+        self.connections['soma_counter'] = qneurons.soma.connect(counters,
                                          prototype=self.s_prototypes['single'],
                                          connectionMask=self.connection_maps['tracker_to_stub'])
 
