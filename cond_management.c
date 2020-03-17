@@ -1,13 +1,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include "cond_management.h"
-//parameters like N_STATES are stored here and modified by the host python program
+//parameters like N_ACTIONS are stored here and modified by the host python program
 #include "cond_parameters.h"
 #include <time.h>
 #include <unistd.h>
 
-int probabilities[N_CONDITIONS][N_STATES];
-int counterVoltages[N_CONDITIONS][N_STATES];
+int probabilities[N_CONDITIONS][N_ACTIONS];
+int counterVoltages[N_CONDITIONS][N_ACTIONS];
 
 int readChannelID = -1;
 int writeChannelID = -1;
@@ -16,9 +16,9 @@ int spikeChannelID = -1;
 
 int rewardCompartment[4];
 int punishCompartment[4];
-int stateCompartments[N_STATES][4];
+int stateCompartments[N_ACTIONS][4];
 int conditionCompartments[N_CONDITIONS][4];
-int counterCompartment[N_CONDITIONS][N_STATES][4];
+int counterCompartment[N_CONDITIONS][N_ACTIONS][4];
 
 int voting_epoch = 128;
 int epsilon = 10;
@@ -48,7 +48,7 @@ int check(runState *s) {
 
     //read out the probabilities of reward for each arm
     for (int i = 0; i < N_CONDITIONS; i++) {
-      for (int j = 0; j < N_STATES; j++) {
+      for (int j = 0; j < N_ACTIONS; j++) {
         readChannel(readChannelID, &probabilities[i][j], 1);
       }
     }
@@ -59,7 +59,7 @@ int check(runState *s) {
     readChannel(readChannelID, &punishCompartment[0], 4);
 
     //read the location of the state stubs
-    for (int i = 0; i < N_STATES; i++) {
+    for (int i = 0; i < N_ACTIONS; i++) {
       readChannel(readChannelID, &stateCompartments[i][0], 4);
     }
 
@@ -71,7 +71,7 @@ int check(runState *s) {
 
     //read the location of the counter neurons
     for (int i = 0; i < N_CONDITIONS; i++) {
-      for (int j = 0; j < N_STATES; j++) {
+      for (int j = 0; j < N_ACTIONS; j++) {
         readChannel(readChannelID, &counterCompartment[i][j][0], 4);
       }
     }
@@ -105,7 +105,7 @@ void get_counter_voltages() {
   //read out the counter soma voltages
   //printf("Voltages: ");
   for (int i = 0; i < N_CONDITIONS; i++) {
-    for (int j = 0; j < N_STATES; j++) {
+    for (int j = 0; j < N_ACTIONS; j++) {
       //get the core the counter is on
       core = nx_nth_coreid(counterCompartment[i][j][2]);
       nc = NEURON_PTR(core);
@@ -126,7 +126,7 @@ void reset_counter_voltages() {
   NeuronCore *nc;
 
   for (int i = 0; i < N_CONDITIONS; i++) {
-    for (int j = 0; j < N_STATES; j++) {
+    for (int j = 0; j < N_ACTIONS; j++) {
       //get the core the counter is on
       core = nx_nth_coreid(counterCompartment[i][j][2]);
       nc = NEURON_PTR(core);
@@ -146,11 +146,11 @@ int get_highest(int condition) {
   int highest = -1;
   int i_highest = -1;
   int ties = 0;
-  int tie_locations[N_STATES];
+  int tie_locations[N_ACTIONS];
   int choice = -1;
 
   //find the max
-  for (int i = 0; i < N_STATES; i++) {
+  for (int i = 0; i < N_ACTIONS; i++) {
     if (counterVoltages[condition][i] > highest) {
       highest = counterVoltages[condition][i];
       i_highest = i;
@@ -158,7 +158,7 @@ int get_highest(int condition) {
   }
 
   //find any values which are tied to it
-  for (int i = 0; i < N_STATES; i++) {
+  for (int i = 0; i < N_ACTIONS; i++) {
     if (counterVoltages[condition][i] == highest) {
       ties++;
       tie_locations[i] = 1;
@@ -189,7 +189,7 @@ int get_highest(int condition) {
 
 void run_cycle(runState *s) {
   //if there are no states or conditions
-  if (N_STATES == 0 || N_CONDITIONS == 0) {
+  if (N_ACTIONS == 0 || N_CONDITIONS == 0) {
     int error = -1;
     writeChannel(writeChannelID, &error, 1);
     return;
@@ -203,7 +203,7 @@ void run_cycle(runState *s) {
   reset_counter_voltages();
 
   for (int i = 0; i < N_CONDITIONS; i++) {
-    for (int j = 0; j < N_STATES; j++) {
+    for (int j = 0; j < N_ACTIONS; j++) {
       writeChannel(spikeChannelID, &counterVoltages[i][j], 1);
     }
   }
@@ -211,7 +211,7 @@ void run_cycle(runState *s) {
   int i_highest = -1;
   if (rand() % 100 < epsilon) {
     //choose a random arm with p = eps.
-    i_highest = rand() % N_STATES;
+    i_highest = rand() % N_ACTIONS;
   } else {
     //choose the best arm with p = (1-eps.)
     i_highest = get_highest(condition);

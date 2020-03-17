@@ -9,10 +9,10 @@ from nxsdk.graph.processes.phase_enums import Phase
 
 
 class tracker:
-    def __init__(self, network, prototypes, n_states, **kwargs):
-        self.n_states = n_states
+    def __init__(self, network, prototypes, n_actions, **kwargs):
+        self.n_actions = n_actions
         self.n_per_state = kwargs.get("n_per_state", 1)
-        self.totalNeurons = self.n_states * self.n_per_state
+        self.totalNeurons = self.n_actions * self.n_per_state
         self.l_epoch = kwargs.get("l_epoch", 128)
         self.epsilon = int(100*kwargs.get("epsilon", 0.10))
 
@@ -116,15 +116,15 @@ class tracker:
 
         #create input stubs for R/P signals to interface with
 
-        estubs = self.net.createInputStubGroup(size=self.n_states)
-        istubs = self.net.createInputStubGroup(size=self.n_states)
+        estubs = self.net.createInputStubGroup(size=self.n_actions)
+        istubs = self.net.createInputStubGroup(size=self.n_actions)
 
         self.stubs['estubs'] = estubs
         self.stubs['istubs'] = istubs
 
         #create the mask that will map the reward/punishment stubs to the right q-trackers,
         # and q-trackers to output
-        tracker_to_stub = np.tile(np.identity(self.n_states), self.n_per_state)
+        tracker_to_stub = np.tile(np.identity(self.n_actions), self.n_per_state)
         stub_to_tracker = tracker_to_stub.transpose()
 
         self.connection_maps['tracker_to_stub'] = tracker_to_stub
@@ -173,7 +173,7 @@ class tracker:
         self.connections['istub_inh_conn'] = istub_exc_conn
 
         #counter
-        counters = self.net.createCompartmentGroup(size=self.n_states,
+        counters = self.net.createCompartmentGroup(size=self.n_actions,
                                          prototype=self.c_prototypes['counterProto'])
 
         self.connections['soma_counter'] = qneurons.soma.connect(counters,
@@ -184,7 +184,7 @@ class tracker:
 
     def get_counter_locations(self):
         locs = []
-        for i in range(self.n_states):
+        for i in range(self.n_actions):
             compartmentId = self.compartments['counters'][i].nodeId
             compartmentLoc = self.net.resourceMap.compartmentMap[compartmentId]
 

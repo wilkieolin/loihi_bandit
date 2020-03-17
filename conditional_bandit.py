@@ -8,10 +8,10 @@ from nxsdk.graph.monitor.probes import *
 from nxsdk.graph.processes.phase_enums import Phase
 
 class conditional_bandit:
-    def __init__(self, n_states, n_conditions, **kwargs):
+    def __init__(self, n_actions, n_conditions, **kwargs):
         self.n_conditions = n_conditions
-        self.n_states = n_states
-        self.n_estimates = n_states * n_conditions
+        self.n_actions = n_actions
+        self.n_estimates = n_actions * n_conditions
         self.n_per_state = kwargs.get("n_per_state", 1)
         self.l_epoch = kwargs.get("l_epoch", 128)
         self.n_epochs = kwargs.get("n_epochs", 100)
@@ -20,12 +20,12 @@ class conditional_bandit:
 
         p_rewards = kwargs.get("p_rewards")
         if p_rewards is not None:
-            assert p_rewards.shape == (self.n_conditions, self.n_states), "Rewards must be in (n_conditions, n_states) format."
+            assert p_rewards.shape == (self.n_conditions, self.n_actions), "Rewards must be in (n_conditions, n_actions) format."
 
             #convert 0-1 (probability) range to 0-100 (percentile, int)
             self.p_rewards = np.clip(p_rewards * 100, 0, 100).astype(np.int)
         else:
-            self.p_rewards = np.random.randint(100, size=(self.n_conditions, self.n_states))
+            self.p_rewards = np.random.randint(100, size=(self.n_conditions, self.n_actions))
         #END
 
         self.recordWeights = kwargs.get('recordWeights', False)
@@ -63,7 +63,7 @@ class conditional_bandit:
         # need to send the epoch length, seed,
         # and for each state: probability (1) and counter compartment for each state
         # as well as the feedback (rwd/punishment/condition/state)
-        n_outData = 3 + self.n_estimates * (1 + 3*4) + (self.n_conditions + self.n_states + 2)*4
+        n_outData = 3 + self.n_estimates * (1 + 3*4) + (self.n_conditions + self.n_actions + 2)*4
 
         setupChannel = self.board.createChannel(b'setupChannel', "int", n_outData)
         setupChannel.connect(None, self.snip)
@@ -93,7 +93,7 @@ class conditional_bandit:
                                                 prototype=self.c_prototypes['bufferProto'])
         punishment = self.net.createCompartmentGroup(size=1,
                                                 prototype=self.c_prototypes['bufferProto'])
-        state = self.net.createCompartmentGroup(size=self.n_states,
+        state = self.net.createCompartmentGroup(size=self.n_actions,
                                                 prototype=self.c_prototypes['bufferProto'])
         condition = self.net.createCompartmentGroup(size=self.n_conditions,
                                                 prototype=self.c_prototypes['bufferProto'])
@@ -112,7 +112,7 @@ class conditional_bandit:
                                                             connectionMask=np.ones((1,1)))
         sstub_to_state = self.stubs['state_stubs'].connect(state,
                                                             prototype=self.s_prototypes['spkconn'],
-                                                            connectionMask=np.eye(self.n_states))
+                                                            connectionMask=np.eye(self.n_actions))
         cstub_to_cond = self.stubs['cond_stubs'].connect(condition,
                                                             prototype=self.s_prototypes['spkconn'],
                                                             connectionMask=np.eye(self.n_conditions))
@@ -132,10 +132,10 @@ class conditional_bandit:
         self.compartments['pun_ands'] = pun_ands
 
         #wire them up to the reward/punishment/condition
-        state_map = np.tile(np.eye(self.n_states), self.n_conditions).transpose()
+        state_map = np.tile(np.eye(self.n_actions), self.n_conditions).transpose()
         condition_map = np.zeros((self.n_estimates, self.n_conditions))
         for i in range(self.n_conditions):
-            inds = range(i*self.n_states, (i+1)*self.n_states)
+            inds = range(i*self.n_actions, (i+1)*self.n_actions)
             condition_map[inds,i] = 1
         #END
 
@@ -176,7 +176,7 @@ class conditional_bandit:
         self.connection_maps['and_mask'] = and_mask
 
         for i in range(self.n_conditions):
-            inds = range(i*self.n_states, (i+1)*self.n_states)
+            inds = range(i*self.n_actions, (i+1)*self.n_actions)
             #the reward tracker we're connecting to
             tracker = self.trackers[i]
             #TODO - FLIP BACK TO REGULAR FOR NON-OPTIMISTIC TRACKER
@@ -235,7 +235,7 @@ class conditional_bandit:
 
             state_tracker = tracker.tracker(self.net,
                 self.prototypes,
-                self.n_states,
+                self.n_actions,
                 n_per_state=self.n_per_state,
                 l_epoch=self.l_epoch,
                 epsilon=self.epsilon,
@@ -251,7 +251,7 @@ class conditional_bandit:
 
         reward_stub = self.net.createInputStubGroup(size=1)
         punish_stub = self.net.createInputStubGroup(size=1)
-        state_stubs = self.net.createInputStubGroup(size=self.n_states)
+        state_stubs = self.net.createInputStubGroup(size=self.n_actions)
         cond_stubs = self.net.createInputStubGroup(size=self.n_conditions)
 
         self.stubs['reward_stub'] = reward_stub
@@ -263,7 +263,7 @@ class conditional_bandit:
     def get_counter_locations(self):
         locs = []
         for i in range(self.n_conditions):
-            for j in range(self.n_states):
+            for j in range(self.n_actions):
                 compartmentId = self.trackers[i].compartments['counters'][j].nodeId
                 compartmentLoc = self.net.resourceMap.compartmentMap[compartmentId]
 
@@ -282,7 +282,7 @@ class conditional_bandit:
         locs['punish_axon'] = self.net.resourceMap.inputAxon(punishAxonId)[0]
 
         state_axons = []
-        for i in range(self.n_states):
+        for i in range(self.n_actions):
             stateAxonId = self.connections['sstub_to_state'][i].inputAxon.nodeId
             state_axons.append(self.net.resourceMap.inputAxon(stateAxonId)[0])
         #END
@@ -349,7 +349,7 @@ class conditional_bandit:
         setupChannel.write(4, stubLocations['punish_axon'])
 
         #send state stub locations
-        for i in range(self.n_states):
+        for i in range(self.n_actions):
             stateAxon = stubLocations['state_axons'][i]
             setupChannel.write(4, stateAxon)
 
@@ -373,9 +373,9 @@ class conditional_bandit:
         for line in data:
 
             #update numarms
-            m = re.match(r'^#define\s+N_STATES', line)
+            m = re.match(r'^#define\s+N_ACTIONS', line)
             if m is not None:
-                line = '#define N_STATES ' + str(self.n_states) + '\n'
+                line = '#define N_ACTIONS ' + str(self.n_actions) + '\n'
 
             #update neuronsperarm
             m = re.match(r'^#define\s+N_CONDITIONS', line)
