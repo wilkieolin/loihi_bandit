@@ -6,8 +6,8 @@
 #include <time.h>
 #include <unistd.h>
 
-int probabilities[N_CONDITIONS][N_ACTIONS];
-int counterVoltages[N_CONDITIONS][N_ACTIONS];
+int probabilities[N_STATES][N_ACTIONS];
+int counterVoltages[N_STATES][N_ACTIONS];
 
 int readChannelID = -1;
 int writeChannelID = -1;
@@ -17,8 +17,8 @@ int spikeChannelID = -1;
 int rewardCompartment[4];
 int punishCompartment[4];
 int stateCompartments[N_ACTIONS][4];
-int conditionCompartments[N_CONDITIONS][4];
-int counterCompartment[N_CONDITIONS][N_ACTIONS][4];
+int conditionCompartments[N_STATES][4];
+int counterCompartment[N_STATES][N_ACTIONS][4];
 
 int voting_epoch = 128;
 int epsilon = 10;
@@ -47,7 +47,7 @@ int check(runState *s) {
     srand(cseed);
 
     //read out the probabilities of reward for each arm
-    for (int i = 0; i < N_CONDITIONS; i++) {
+    for (int i = 0; i < N_STATES; i++) {
       for (int j = 0; j < N_ACTIONS; j++) {
         readChannel(readChannelID, &probabilities[i][j], 1);
       }
@@ -64,13 +64,13 @@ int check(runState *s) {
     }
 
     //read the location of the condition stubs
-    for (int i = 0; i < N_CONDITIONS; i++) {
+    for (int i = 0; i < N_STATES; i++) {
       readChannel(readChannelID, &conditionCompartments[i][0], 4);
     }
     printf("Got R/P/State/Condition compartments\n");
 
     //read the location of the counter neurons
-    for (int i = 0; i < N_CONDITIONS; i++) {
+    for (int i = 0; i < N_STATES; i++) {
       for (int j = 0; j < N_ACTIONS; j++) {
         readChannel(readChannelID, &counterCompartment[i][j][0], 4);
       }
@@ -104,7 +104,7 @@ void get_counter_voltages() {
 
   //read out the counter soma voltages
   //printf("Voltages: ");
-  for (int i = 0; i < N_CONDITIONS; i++) {
+  for (int i = 0; i < N_STATES; i++) {
     for (int j = 0; j < N_ACTIONS; j++) {
       //get the core the counter is on
       core = nx_nth_coreid(counterCompartment[i][j][2]);
@@ -125,7 +125,7 @@ void reset_counter_voltages() {
   int cxId = 0;
   NeuronCore *nc;
 
-  for (int i = 0; i < N_CONDITIONS; i++) {
+  for (int i = 0; i < N_STATES; i++) {
     for (int j = 0; j < N_ACTIONS; j++) {
       //get the core the counter is on
       core = nx_nth_coreid(counterCompartment[i][j][2]);
@@ -189,20 +189,20 @@ int get_highest(int condition) {
 
 void run_cycle(runState *s) {
   //if there are no states or conditions
-  if (N_ACTIONS == 0 || N_CONDITIONS == 0) {
+  if (N_ACTIONS == 0 || N_STATES == 0) {
     int error = -1;
     writeChannel(writeChannelID, &error, 1);
     return;
   }
 
   //select the condition we're going to be sampling under
-  int condition = rand() % N_CONDITIONS;
+  int condition = rand() % N_STATES;
 
   //get the firing rates for all estimate neurons
   get_counter_voltages();
   reset_counter_voltages();
 
-  for (int i = 0; i < N_CONDITIONS; i++) {
+  for (int i = 0; i < N_STATES; i++) {
     for (int j = 0; j < N_ACTIONS; j++) {
       writeChannel(spikeChannelID, &counterVoltages[i][j], 1);
     }
