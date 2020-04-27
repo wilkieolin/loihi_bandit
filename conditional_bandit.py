@@ -26,7 +26,7 @@ class conditional_bandit:
             self.p_rewards = np.clip(p_rewards * 100, 0, 100).astype(np.int)
         else:
             self.p_rewards = np.random.randint(100, size=(self.n_states, self.n_actions))
-        #END
+        
 
         self.recordWeights = kwargs.get('recordWeights', False)
         self.recordSpikes = kwargs.get('recordSpikes', False)
@@ -46,13 +46,13 @@ class conditional_bandit:
         self._compile()
         self._create_SNIPs()
         self._create_channels()
-    #END
+    
 
     def _compile(self):
         self.compiler = nx.N2Compiler()
         self.board = self.compiler.compile(self.net)
         self.board.sync = True
-    #END
+    
 
     def _create_channels(self):
         assert hasattr(self, 'board'), "Must compile net to board before creating channels."
@@ -81,7 +81,7 @@ class conditional_bandit:
         spikeChannel = self.board.createChannel(b'spikeChannel', "int", (self.n_epochs*self.n_estimates))
         spikeChannel.connect(self.snip, None)
         self.inChannels['spikeChannel'] = spikeChannel
-    #END
+    
 
     def _create_logic(self):
         self.compartments = {}
@@ -137,7 +137,7 @@ class conditional_bandit:
         for i in range(self.n_states):
             inds = range(i*self.n_actions, (i+1)*self.n_actions)
             condition_map[inds,i] = 1
-        #END
+        
 
         self.connection_maps['condition_map'] = condition_map
         self.connection_maps['state_map'] = state_map
@@ -189,11 +189,11 @@ class conditional_bandit:
                                             prototype=self.s_prototypes['spkconn'],
                                             connectionMask=and_mask[inds,:])
             pun_to_trackers.append(pun_connection)
-        #END
+        
         self.connections['rwd_connection'] = rwd_connection
         self.connections['pun_connection'] = pun_connection
 
-    #END
+    
 
     def _create_probes(self):
         # -- Create Probes --
@@ -208,7 +208,7 @@ class conditional_bandit:
             self.probes['state'] = self.compartments['state'].probe(nx.ProbeParameter.SPIKE)
             self.probes['condition'] = self.compartments['condition'].probe(nx.ProbeParameter.SPIKE)
 
-    #END
+    
 
     def _create_prototypes(self, vth):
         self.prototypes = prototypes.create_prototypes(self.vth)
@@ -216,7 +216,7 @@ class conditional_bandit:
         self.c_prototypes = self.prototypes['c_prototypes']
         self.n_prototypes = self.prototypes['n_prototypes']
         self.s_prototypes = self.prototypes['s_prototypes']
-    #END
+    
 
     def _create_SNIPs(self):
         assert hasattr(self, 'board'), "Must compile net to board before creating SNIP."
@@ -226,7 +226,7 @@ class conditional_bandit:
                                      cFilePath = includeDir + "/cond_management.c",
                                      funcName = "run_cycle",
                                      guardName = "check")
-    #END
+    
 
     def _create_trackers(self):
         self.trackers = []
@@ -243,7 +243,7 @@ class conditional_bandit:
                 recordSpikes=self.recordSpikes)
 
             self.trackers.append(state_tracker)
-    #END
+    
 
     def _create_stubs(self):
         #create input stubs for SNIP to interface with the network
@@ -258,7 +258,7 @@ class conditional_bandit:
         self.stubs['punish_stub'] = punish_stub
         self.stubs['state_stubs'] = state_stubs
         self.stubs['cond_stubs'] = cond_stubs
-    #END
+    
 
     def get_counter_locations(self):
         locs = []
@@ -270,7 +270,7 @@ class conditional_bandit:
                 locs.append(compartmentLoc)
 
         return locs
-    #END
+    
 
     def get_stub_locations(self):
         locs = {}
@@ -285,23 +285,23 @@ class conditional_bandit:
         for i in range(self.n_actions):
             stateAxonId = self.connections['sstub_to_state'][i].inputAxon.nodeId
             state_axons.append(self.net.resourceMap.inputAxon(stateAxonId)[0])
-        #END
+        
         locs['state_axons'] = state_axons
 
         condition_axons = []
         for i in range(self.n_states):
             conditionAxonId = self.connections['cstub_to_cond'][i].inputAxon.nodeId
             condition_axons.append(self.net.resourceMap.inputAxon(conditionAxonId)[0])
-        #END
+        
         locs['condition_axons'] = condition_axons
 
         return locs
-    #END
+    
 
     def initialize(self):
         self._start()
         self._send_config()
-    #END
+    
 
     def run(self, epochs):
         assert epochs in range(1, self.n_epochs + 1), "Must run between 1 and the set number of epochs."
@@ -324,7 +324,7 @@ class conditional_bandit:
         self.spikes = np.array(spikeChannel.read(epochs*self.n_estimates), dtype='int').reshape(epochs, self.n_estimates)/(singlewgt*2**6)
 
         return (self.conditions, self.choices, self.rewards, self.spikes)
-    #END
+    
 
     def _send_config(self):
         #probeIDMap = self.get_probeid_map()
@@ -361,7 +361,7 @@ class conditional_bandit:
         #send the counter locations
         for i in range(self.n_estimates):
             setupChannel.write(4, counterLocations[i][:4])
-    #END
+    
 
     def _set_params_file(self):
         filename = os.getcwd()+'/cond_parameters.h'
@@ -385,15 +385,15 @@ class conditional_bandit:
             f.write(line)
 
         f.close()
-    #END
+    
 
     def _start(self):
         assert hasattr(self, 'board') and hasattr(self, 'snip'), "Must have compiled board and snips before starting."
         self._set_params_file()
         self.board.startDriver()
-    #END
+    
 
     def stop(self):
         self.board.disconnect()
-    #END
-#END
+    
+

@@ -54,6 +54,7 @@ int check(runState *s) {
       readChannel(readChannelID, &punishCompartment[i][0], 4);
       //DEBUG
       //printf("%d %d %d %d\n", rewardCompartment[i][0], rewardCompartment[i][1], rewardCompartment[i][2], rewardCompartment[i][3]);
+      //printf("coreid %d\n", rewardCompartment[i][2]);
     }
     printf("Got R/P compartments\n");
 
